@@ -20,25 +20,30 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
+#include <zsystem/process/FeatureProcess.h>
+#include <zsystem/Process.h>
 
-#include <string>
-#include <vector>
+#include <sys/types.h>
+#include <signal.h>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
-public:
-	Backtrace();
-	~Backtrace() = default;
+void FeatureProcess::stop() {
+	if(pid != Process::noHandle) {
+		::kill(pid, SIGTERM);
+	}
+}
 
-	const std::vector<std::string>& getElements() const;
+void FeatureProcess::kill() {
+	if(pid != Process::noHandle) {
+		::kill(pid, SIGKILL);
+	}
+}
 
-private:
-	std::vector<std::string> elements;
-};
+void FeatureProcess::setProcessHandle(Process::Handle aPid) noexcept {
+	pid = aPid;
+}
 
+} /* namespace process */
 } /* namespace zsystem */
-
-#endif /* ZSYSTEM_BACKTRACE_H_ */

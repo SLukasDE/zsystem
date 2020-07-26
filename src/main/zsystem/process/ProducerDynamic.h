@@ -20,25 +20,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
+#ifndef ZSYSTEM_PROCESS_PRODUCERDYNAMIC_H_
+#define ZSYSTEM_PROCESS_PRODUCERDYNAMIC_H_
+
+#include <zsystem/process/Producer.h>
+#include <zsystem/process/FileDescriptor.h>
 
 #include <string>
-#include <vector>
+#include <functional>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
+class ProducerDynamic : public Producer {
 public:
-	Backtrace();
-	~Backtrace() = default;
+	ProducerDynamic(std::function<std::size_t(char*, std::size_t)> getDataFunction);
+	ProducerDynamic(std::string content);
 
-	const std::vector<std::string>& getElements() const;
+	std::size_t write(FileDescriptor& fileDescriptor) override;
 
 private:
-	std::vector<std::string> elements;
+	std::function<std::size_t(char*, std::size_t)> getDataFunction;
+	std::string data;
+
+	char buffer[4096];
+	const char *bufferRead;
+	std::size_t currentPos = 0;
+	std::size_t currentSize = 0;
 };
 
+} /* namespace process */
 } /* namespace zsystem */
 
-#endif /* ZSYSTEM_BACKTRACE_H_ */
+#endif /* ZSYSTEM_PROCESS_PRODUCERDYNAMIC_H_ */

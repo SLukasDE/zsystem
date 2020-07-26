@@ -20,25 +20,29 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
-
-#include <string>
-#include <vector>
+#include <zsystem/process/FeatureTime.h>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
-public:
-	Backtrace();
-	~Backtrace() = default;
+unsigned int FeatureTime::getRealMS() const noexcept {
+	return timeDataPtr ? timeDataPtr->realMs : timeData.realMs;
+}
 
-	const std::vector<std::string>& getElements() const;
+unsigned int FeatureTime::getUserMS() const noexcept {
+	return timeDataPtr ? timeDataPtr->userMs : timeData.userMs;
+}
 
-private:
-	std::vector<std::string> elements;
-};
+unsigned int FeatureTime::getSysMS() const noexcept {
+	return timeDataPtr ? timeDataPtr->sysMs : timeData.sysMs;
+}
 
+void FeatureTime::setTimeDataPtr(TimeData* aTimeData) noexcept {
+	if(timeDataPtr && aTimeData == nullptr) {
+		timeData = *timeDataPtr;
+	}
+	timeDataPtr = aTimeData;
+}
+
+} /* namespace process */
 } /* namespace zsystem */
-
-#endif /* ZSYSTEM_BACKTRACE_H_ */

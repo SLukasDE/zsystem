@@ -20,25 +20,39 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
-
-#include <string>
-#include <vector>
+#include <zsystem/process/ProducerStatic.h>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
-public:
-	Backtrace();
-	~Backtrace() = default;
+ProducerStatic::ProducerStatic(const char* aData, std::size_t aSize)
+: data(aData),
+  size(aSize)
+{ }
 
-	const std::vector<std::string>& getElements() const;
+std::size_t ProducerStatic::write(process::FileDescriptor& fileDescriptor) {
+	std::size_t count = fileDescriptor.write(getData(), getSize() - currentPos);
 
-private:
-	std::vector<std::string> elements;
-};
+	if(count != 0) {
+		if(count == process::FileDescriptor::npos) {
+			/* error occurred. set currentPos to the end of the content */
+			currentPos = getSize();
+		}
+		else {
+			currentPos += count;
+		}
+	}
 
+	return (currentPos < getSize()) ? count : process::FileDescriptor::npos;
+}
+
+const char* ProducerStatic::getData() const noexcept {
+	return data;
+}
+
+std::size_t ProducerStatic::getSize() const noexcept {
+	return size;
+}
+
+} /* namespace process */
 } /* namespace zsystem */
-
-#endif /* ZSYSTEM_BACKTRACE_H_ */

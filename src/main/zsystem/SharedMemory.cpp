@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019 Sven Lukas
+Copyright (c) 2019, 2020 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,8 @@ SOFTWARE.
 
 #include <zsystem/SharedMemory.h>
 #include <sys/mman.h>
-#include <iostream>
+
+#include <stdexcept>
 
 namespace zsystem {
 SharedMemory<void>::SharedMemory(std::size_t aSharedMemSize)
@@ -30,7 +31,7 @@ SharedMemory<void>::SharedMemory(std::size_t aSharedMemSize)
 {
     sharedMemPtr = mmap(nullptr, sharedMemSize, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     if(sharedMemPtr == MAP_FAILED) {
-    	std::cerr << "Mmap failed.\n";
+    	throw std::runtime_error("Mmap failed.");
     	sharedMemPtr = nullptr;
     }
 }

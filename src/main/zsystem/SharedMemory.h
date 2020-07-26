@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019 Sven Lukas
+Copyright (c) 2019, 2020 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -49,7 +49,10 @@ class SharedMemory {
 public:
 	SharedMemory()
     : systemSharedMemory(sizeof(T))
-    {}
+    {
+		T* t = reinterpret_cast<T*> (systemSharedMemory.getData());
+		new (t) T; // placement new
+    }
 
 	~SharedMemory() = default;
 

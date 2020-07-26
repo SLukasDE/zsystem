@@ -20,25 +20,48 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
-
-#include <string>
-#include <vector>
+#include <zsystem/process/ProducerDynamic.h>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
-public:
-	Backtrace();
-	~Backtrace() = default;
+ProducerDynamic::ProducerDynamic(std::function<std::size_t(char*, std::size_t)> aGetDataFunction)
+: getDataFunction(aGetDataFunction),
+  bufferRead(buffer)
+{ }
 
-	const std::vector<std::string>& getElements() const;
+ProducerDynamic::ProducerDynamic(std::string aContent)
+: data(std::move(aContent)),
+  bufferRead(data.data()),
+  currentSize(data.size() == 0 ? FileDescriptor::npos : data.size())
+{ }
 
-private:
-	std::vector<std::string> elements;
-};
+std::size_t ProducerDynamic::write(process::FileDescriptor& fileDescriptor) {
+	if(currentPos >= currentSize) {
+		if(getDataFunction) {
+			currentPos = 0;
+			currentSize = getDataFunction(buffer, sizeof(buffer));
 
+			if(currentSize == 0) {
+				currentSize = FileDescriptor::npos;
+			}
+		}
+		else {
+			currentSize = FileDescriptor::npos;
+		}
+	}
+
+	if(currentSize == FileDescriptor::npos) {
+		return FileDescriptor::npos;
+	}
+
+	std::size_t count = fileDescriptor.write(&bufferRead[currentPos], currentSize - currentPos);
+	if(count != process::FileDescriptor::npos) {
+		currentPos += count;
+	}
+
+	return count;
+}
+
+} /* namespace process */
 } /* namespace zsystem */
-
-#endif /* ZSYSTEM_BACKTRACE_H_ */

@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019 Sven Lukas
+Copyright (c) 2019, 2020 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,527 +21,488 @@ SOFTWARE.
 */
 
 #include <zsystem/Process.h>
-#include <iostream>
-#include <string.h>
-#include <fcntl.h>  /* fuer O_RDWR|O_CREAT */
-#include <errno.h>  /* fuer errno != EINTR */
+#include <zsystem/process/ConsumerFile.h>
+#include <zsystem/process/ProducerFile.h>
+#include <zsystem/process/FeatureProcess.h>
+#include <zsystem/SharedMemory.h>
+
+#include <unistd.h>
+#include <dirent.h>
 #include <poll.h>
-#include <signal.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/ioctl.h>
-#include <sys/prctl.h>
-#include <sys/times.h>
 #include <sys/time.h>
-#include <sys/mman.h>
+#include <sys/times.h>
+
+#include <stdexcept>
+#include <cstring>
+#include <map>
+#include <set>
 
 namespace zsystem {
 
-namespace {
-char** createArgs(const std::string& executable, const std::list<std::string>& arguments) {
-    char** argv = new char*[arguments.size()+2];
+const Process::Handle Process::noHandle = -1;
 
-    argv[0] = new char[executable.size()+1];
-    argv[0][0] = 0;
-    strcat(argv[0], executable.c_str());
+Process::Process(process::Arguments aArguments, std::string aWorkingDir)
+: arguments(std::move(aArguments)),
+  workingDir(std::move(aWorkingDir))
+{ }
 
-    int i = 1;
-    for(std::list<std::string>::const_iterator iter = arguments.begin(); iter != arguments.end(); ++iter) {
-        argv[i] = new char[iter->size()+1];
-        argv[i][0] = 0;
-        strcat(argv[i], iter->c_str());
-        ++i;
-    }
+Process::Process(process::Arguments aArguments, process::Environment aEnvironment, std::string aWorkingDir)
+: arguments(std::move(aArguments)),
+  environment(new process::Environment(std::move(aEnvironment))),
+  workingDir(std::move(aWorkingDir))
+{ }
 
-    argv[i] = nullptr;
-    return argv;
+int Process::execute() {
+	ParameterFeatures parameterFeatures;
+
+	return execute(ParameterStreams(), parameterFeatures);
 }
 
-} /* anonymous namespace */
+int Process::execute(process::FileDescriptor::Handle handle) {
+	ParameterStreams parameterStream;
+	ParameterFeatures parameterFeatures;
 
-
-
-Process::File::File(std::string aFilename)
-: Output(),
-  filename(std::move(aFilename))
-{
+	addParameterStream(parameterStream, handle, nullptr, nullptr);
+	return execute(parameterStream, parameterFeatures);
 }
 
-Process::File::~File() {
-	close();
+int Process::execute(process::Producer& producer, process::FileDescriptor::Handle handle) {
+	ParameterStreams parameterStream;
+	ParameterFeatures parameterFeatures;
+
+	addParameterStream(parameterStream, handle, &producer, nullptr);
+	return execute(parameterStream, parameterFeatures);
 }
 
-bool Process::File::open() {
-	if(fdFile != -1) {
-		return false;
-	}
-    fdFile = ::open(filename.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
-    if(fdFile == -1) {
-    	std::cerr << "Cannot open output file \"" << filename << "\"\n";
-    	return false;
-    }
-    return true;
+int Process::execute(process::Consumer& consumer, process::FileDescriptor::Handle handle) {
+	ParameterStreams parameterStream;
+	ParameterFeatures parameterFeatures;
+
+	addParameterStream(parameterStream, handle, nullptr, &consumer);
+	return execute(parameterStream, parameterFeatures);
 }
 
-void Process::File::join(int fd) {
-    ::close(fd);
-	if(fdFile != -1) {
-	    dup2(fdFile, fd);
-	}
+int Process::execute(process::Feature& feature) {
+	ParameterFeatures parameterFeatures;
+
+	parameterFeatures.emplace_back(std::ref(feature));
+	return execute(ParameterStreams(), parameterFeatures);
 }
 
-void Process::File::joined(bool) {
-}
+int Process::execute(const ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures) {
+	ChildFileDescriptors childFileDescriptors;
+	ParentFileDescriptors parentFileDescriptors;
+	for(auto& parameterStream : parameterStreams) {
+		if(parameterStream.first == process::FileDescriptor::noHandle) {
+			continue;
+		}
 
-void Process::File::close() {
-	if(fdFile != -1) {
-	    ::close(fdFile);
-	    fdFile = -1;
-	}
-}
-
-std::size_t Process::File::read(void* buffer, std::size_t s) {
-	return 0;
-}
-
-bool Process::File::setBlocking(bool blocking) {
-	return true;
-}
-
-
-
-
-Process::Pipe::Pipe()
-: Output()
-{
-	pipefd[0] = -1;
-	pipefd[1] = -1;
-}
-
-Process::Pipe::~Pipe() {
-	close();
-}
-
-bool Process::Pipe::open() {
-	if(pipefd[0] != -1 || pipefd[1] != -1) {
-		return false;
-	}
-
-    if(pipe2(pipefd, O_NONBLOCK) == -1) {
-    	pipefd[0] = -1;
-    	pipefd[1] = -1;
-    	std::cerr << "Cannot open pipe\n";
-    	return false;
-    }
-
-	readFlags = fcntl(pipefd[0], F_GETFL, 0);
-	return true;
-}
-
-void Process::Pipe::join(int fd) {
-//    ::close(fd);
-	if(pipefd[1] != -1) {
-		while ((dup2(pipefd[1], fd) == -1) && (errno == EINTR)) {
+		if(parameterStream.second.producer && parameterStream.second.consumer) {
+			std::pair<process::FileDescriptor, process::FileDescriptor> tmp = process::FileDescriptor::openBidirectional();
+			childFileDescriptors[parameterStream.first] = std::move(tmp.second);
+			parentFileDescriptors.emplace_back(std::move(tmp.first), parameterStream.second.producer, parameterStream.second.consumer);
+		}
+		else if(parameterStream.second.producer && parameterStream.second.consumer == nullptr) {
+			process::ProducerFile* producerFile = dynamic_cast<process::ProducerFile*>(parameterStream.second.producer);
+			if(producerFile && producerFile->getFileDescriptor()) {
+				childFileDescriptors[parameterStream.first] = std::move(producerFile->getFileDescriptor());
+			}
+			else {
+				std::pair<process::FileDescriptor, process::FileDescriptor> tmp = process::FileDescriptor::openUnidirectional();
+				childFileDescriptors[parameterStream.first] = std::move(tmp.first);
+				parentFileDescriptors.emplace_back(std::move(tmp.second), parameterStream.second.producer, parameterStream.second.consumer);
+			}
+		}
+		else if(parameterStream.second.producer == nullptr && parameterStream.second.consumer) {
+			process::ConsumerFile* consumerFile = dynamic_cast<process::ConsumerFile*>(parameterStream.second.consumer);
+			if(consumerFile && consumerFile->getFileDescriptor()) {
+				childFileDescriptors[parameterStream.first] = std::move(consumerFile->getFileDescriptor());
+			}
+			else {
+				std::pair<process::FileDescriptor, process::FileDescriptor> tmp = process::FileDescriptor::openUnidirectional();
+				childFileDescriptors[parameterStream.first] = std::move(tmp.second);
+				parentFileDescriptors.emplace_back(std::move(tmp.first), parameterStream.second.producer, parameterStream.second.consumer);
+			}
+		}
+		else {
+			childFileDescriptors[parameterStream.first];
 		}
 	}
-}
 
-void Process::Pipe::joined(bool isParent) {
-	if(pipefd[0] != -1 && isParent == false) {
-		::close(pipefd[0]);
-		pipefd[0] = -1;
+	std::unique_ptr<SharedMemory<process::FeatureTime::TimeData>> timeData;
+	for(auto& parameterFeature : parameterFeatures) {
+		process::FeatureTime* featureTime = dynamic_cast<process::FeatureTime*>(&parameterFeature.get());
+		if(featureTime) {
+			if(!timeData) {
+				timeData.reset(new SharedMemory<process::FeatureTime::TimeData>);
+			}
+			featureTime->setTimeDataPtr(timeData->getData());
+			continue;
+		}
 	}
 
-	if(pipefd[1] != -1) {
-		::close(pipefd[1]);
-		pipefd[1] = -1;
-	}
+	Handle pid = childRun(std::move(childFileDescriptors), parameterFeatures, (timeData ? timeData.get()->getData() : nullptr));
+	return parentRun(pid, std::move(parentFileDescriptors), parameterFeatures);
 }
 
-void Process::Pipe::close() {
-	joined(false);
-}
+Process::Handle Process::childRun(ChildFileDescriptors fileDescriptors, ParameterFeatures& parameterFeatures, process::FeatureTime::TimeData* timeData) {
+	char* const* argv = arguments.getArgv();
 
-std::size_t Process::Pipe::read(void* buffer, std::size_t s) {
-	if(pipefd[0] == -1) {
-		return 0;
+	char* const* envp = nullptr;
+	if(environment) {
+		envp = environment->getEnvp();
 	}
 
-	ssize_t rv = ::read(pipefd[0], buffer, s);
-	if(rv == -1) {
-		return 0;
-	}
-	return rv;
-}
+	const char* chdirStr = workingDir.empty() ? nullptr : workingDir.c_str();
 
-bool Process::Pipe::setBlocking(bool blocking) {
-	if(pipefd[0] == -1) {
-		return false;
-	}
-#ifdef _WIN32
-   unsigned long mode = blocking ? 0 : 1;
-   return (ioctlsocket(fd, FIONBIO, &mode) == 0) ? true : false;
-#else
-	if(readFlags == -1) {
-		return false;
-	}
-	readFlags = blocking ? (readFlags & ~O_NONBLOCK) : (readFlags | O_NONBLOCK);
-   return fcntl(pipefd[0], F_SETFL, readFlags) == 0;
-#endif
-}
+	pid_t pid = fork();
+	if(pid == 0) {
+		/* child */
+		pid = getpid();
 
+		/* Terminate child, if parent killed, use once only !!!! */
+		prctl(PR_SET_PDEATHSIG, SIGTERM);
 
+		/* ******************* *
+		 * set FileDescriptos  *
+		 * ******************* */
+		for(const auto& fileDescriptor : fileDescriptors) {
+			if(fileDescriptor.first == process::FileDescriptor::noHandle) {
+				continue;
+			}
+			if(fileDescriptor.second) {
+				while(close(fileDescriptor.first) == EINTR) { }
+				while(dup2(fileDescriptor.second.getHandle(), fileDescriptor.first) == EINTR) { }
+			}
+		}
 
 
-bool Process::Default::open() {
-	return true;
-}
+		/* ********************************* *
+		 * close all opened file descriptors *
+		 * ********************************* */
+		char procDirFd[16];
+		std::sprintf(procDirFd, "/proc/%d/fd/", pid);
 
-void Process::Default::join(int) {
-}
+		DIR *dir;
+		struct dirent *ent;
 
-void Process::Default::joined(bool) {
-}
+		if((dir = opendir(procDirFd)) == nullptr) {
+			write(STDERR_FILENO, "Cannot open directory: \"", std::strlen("Cannot open directory: \""));
+			write(STDERR_FILENO, procDirFd, std::strlen(procDirFd));
+			write(STDERR_FILENO, "\"\n", std::strlen("\"\n"));
+			_exit(EXIT_FAILURE);
+		}
 
-void Process::Default::close() {
-}
+		// get files and directories within directory
+		while((ent = readdir(dir)) != nullptr) {
+			if(ent->d_type == DT_DIR) {
+				continue;
+			}
 
-std::size_t Process::Default::read(void*, std::size_t) {
-	return 0;
-}
+			// convert file name to int
+			char* end;
+			int fd = strtol(ent->d_name, &end, 32);
+			if(!*end && fileDescriptors.find(fd) == std::end(fileDescriptors)) {
+				// close valid file descriptor
+				while(close(fd) == EINTR) { }
+			}
+		}
+		closedir(dir);
 
-bool Process::Default::setBlocking(bool blocking) {
-	return true;
-}
+		if(chdirStr && chdir(chdirStr) == -1) {
+			write(STDERR_FILENO, "Unable to change to directory \"", std::strlen("Unable to change to directory \""));
+			write(STDERR_FILENO, chdirStr, std::strlen(chdirStr));
+			write(STDERR_FILENO, "\"\n", std::strlen("\"\n"));
+			_exit(EXIT_FAILURE);
+		}
 
+		pid_t timerPid = 0;
+		suseconds_t realTimeStartUsec;
+		struct tms startTms;
 
+		if(timeData) {
+			timeval tv;
+			gettimeofday(&tv, nullptr);
+			realTimeStartUsec = tv.tv_sec * 1000000 + tv.tv_usec;
+			times(&startTms);
 
+			timerPid = fork();
+			if (timerPid < 0) { /* error */
+				write(STDERR_FILENO, "Inner fork failed.\n", std::strlen("Inner fork failed.\n"));
+				_exit(-2);
+			}
+		}
 
+		if(timerPid == 0) {
+			/* Check if there has been another fork */
+			if(timeData) {
+				/* Terminate child, if parent killed, use once only !!!! */
+				prctl(PR_SET_PDEATHSIG, SIGTERM);
+			}
 
+			if(envp) {
+				execvpe(argv[0], argv, envp);
+			}
+			else {
+				execvp(argv[0], argv);
+			}
 
+			write(STDERR_FILENO, "Unable to execute \"", std::strlen("Unable to change to execute \""));
+			write(STDERR_FILENO, argv[0], std::strlen(argv[0]));
+			write(STDERR_FILENO, "\"\n", std::strlen("\"\n"));
+			_exit(EXIT_FAILURE);
+		}
 
+		/* we only run to this part if there is an time measurement enabled */
+		long double clktck = static_cast<long double>(sysconf(_SC_CLK_TCK)) / 1000;
+		int rc;
+		while(true) {
+			pid_t rcWaitPid = waitpid(timerPid, &rc, 0);
 
-
-
-long double Process::clktck = static_cast<long double>(sysconf(_SC_CLK_TCK)) / 1000;
-int Process::fdNull = open("/dev/null", O_RDWR);
-
-Process::~Process() {
-    wait();
-
-    if(argv != nullptr) {
-        for(int i = 0; argv[i] != nullptr; ++i) {
-            delete[] argv[i];
-        }
-    }
-}
-
-void Process::enableTimeMeasurement(bool enabled) {
-	if(running == false) {
-		doTimeMeasurement = enabled;
-	}
-}
-
-void Process::setWorkingDirectory(const std::string& aWorkingDirectory) {
-	workingDirectory = aWorkingDirectory;
-}
-
-void Process::setStdOut(Output* output) {
-	outPtr = output;
-}
-
-void Process::setStdErr(Output* output) {
-	errPtr = output;
-}
-
-bool Process::execute(const std::string& executable, const std::list<std::string>& arguments) {
-    if(running) {
-        return false;
-    }
-
-    failed = true;
-
-    argv = createArgs(executable, arguments);
-    const char* chdirStr = nullptr;
-    if(!workingDirectory.empty()) {
-        chdirStr = workingDirectory.c_str();
-    }
-
-    if(outPtr) {
-    	if(outPtr->open() == false) {
-    		return false;
-    	}
-    }
-    if(errPtr && errPtr != outPtr) {
-    	if(errPtr->open() == false) {
-    		return false;
-    	}
-    }
-
-    /* Variablen, die erst im Time-Prozess benoetigt werden.
-     * Wir legen sie bereits hier an, damit im geforkten Prozess nicht
-     * womoeglich der Stack vergroessert werden muss
-     */
-    pid_t timerPid = 0;
-    timeval tv;
-    suseconds_t realTimeStartUsec;
-    struct tms startTms;
-    struct tms endTms;
-    double realMs;
-    double cuser;
-    double csystem;
-    int returnVal;
-    pid_t rcWaitPid = 0;
-
-    if(doTimeMeasurement) {
-    	timeDataMemory.reset(new SharedMemory<TimeData>);
-        if(timeDataMemory->getData() == nullptr) {
-        	timeDataMemory.reset();
-        	std::cerr << "Mmap failed.\n";
-            return false;
-        }
-    }
-
-    pid = fork();
-
-    /* fork failed */
-    if(pid < 0) {
-    	timeDataMemory.reset();
-        std::cerr << "Fehler bei der Ausfuehrung von fork() aufgetreten\n";
-        return false;
-    }
-
-    if (pid == 0) { /* child */
-
-        /* ********************************** */
-        /* STDIN entsprechend Child-IN setzen */
-        /* ********************************** */
-
-        close(STDIN_FILENO);
-        if(fdNull != -1) {
-            dup2(fdNull, STDIN_FILENO);
-        }
-
-        /* *********************************************** */
-        /* STDOUT und STDERR entsprechend Child-OUT setzen */
-        /* *********************************************** */
-
-        if(outPtr) {
-        	outPtr->join(STDOUT_FILENO);
-        }
-        else {
-            close(STDOUT_FILENO);
-        }
-
-        if(errPtr) {
-        	errPtr->join(STDERR_FILENO);
-        }
-        else {
-            close(STDERR_FILENO);
-        }
-
-        if(outPtr) {
-        	outPtr->joined(false);
-        }
-        if(errPtr) {
-        	errPtr->joined(false);
-        }
-//            setsid();
-//            ioctl(STDIN_FILENO, TIOCSCTTY, 1);
-
-        if(chdirStr && chdir(chdirStr) == -1) {
-            write(STDERR_FILENO, "Unable to change to directory \"", strlen("Unable to change to directory \""));
-            write(STDERR_FILENO, chdirStr, strlen(chdirStr));
-            write(STDERR_FILENO, "\"", strlen("\""));
-            _exit(-2);
-//            exit(EXIT_FAILURE);
-        }
-
-    	timerPid = 0;
-        if(doTimeMeasurement) {
+			timeval tv;
             gettimeofday(&tv, nullptr);
-            realTimeStartUsec = tv.tv_sec * 1000000 + tv.tv_usec;
-            times(&startTms);
 
-            timerPid = fork();
-            if (timerPid < 0) { /* error */
-                _exit(-2);
-//                exit(EXIT_FAILURE);
-            }
-        }
+            double realMs = (tv.tv_sec * 1000000 + tv.tv_usec) - realTimeStartUsec;
+            realMs /= 1000;
+            timeData->realMs = realMs;
 
-        if (timerPid == 0) { /* child */
-
-            /* Terminate child, wenn parent killed, use once only !!!! */
-            // int r = prctl(PR_SET_PDEATHSIG, SIGTERM);
-            prctl(PR_SET_PDEATHSIG, SIGTERM);
-
-            execv(argv[0], argv);
-    		perror("execv");
-    		_exit(1);
-        }
-
-        timeDataMemory->getData()->pid = timerPid;
-
-        /* timer Parent-Process */
-        while(true) {
-            // in case we are reading from the child, we have to return from waitpid
-            // otherwise it might lead to a deadlock in case the child does not terminate
-            // because its output is not being consumed.
-        	rcWaitPid = waitpid(timerPid, &returnVal, 0);
-
-            gettimeofday(&tv, nullptr);
+    		struct tms endTms;
             times(&endTms);
 
-            realMs = (tv.tv_sec * 1000000 + tv.tv_usec) - realTimeStartUsec;
-            realMs /= 1000;
-        	timeDataMemory->getData()->realMs = realMs;
-
-            cuser = endTms.tms_cutime - startTms.tms_cutime;
+            double cuser = endTms.tms_cutime - startTms.tms_cutime;
             cuser /= clktck;
-            timeDataMemory->getData()->userMs = cuser;
+            timeData->userMs = cuser;
 
-            csystem = endTms.tms_cstime - startTms.tms_cstime;
+            double csystem = endTms.tms_cstime - startTms.tms_cstime;
             csystem /= clktck;
-            timeDataMemory->getData()->sysMs = csystem;
+            timeData->sysMs = csystem;
 
-            if(rcWaitPid == -1) {
-                /* on error */
-                std::cerr << "waitpid: error occurs, signal interruped ..." << std::endl;
-                returnVal = EXIT_FAILURE;
-                break;
-            }
+			if(rcWaitPid == -1) {
+				if (errno == EINTR) {
+					continue;
+				}
+				/* on error */
+				rc = EXIT_FAILURE;
+				break;
+			}
 
-            if(WIFEXITED(returnVal)) {
-                returnVal = WEXITSTATUS(returnVal);
-                break;
-            }
-            if(WIFSIGNALED(returnVal)) {
-                // follow the same convention as bash of returning signal values in return codes by adding 128 to them
-                returnVal = 128 + WTERMSIG(returnVal);
-                break;
-            }
-        }
+			if(WIFEXITED(rc)) {
+				rc = WEXITSTATUS(rc);
+				break;
+			}
 
-        _exit(returnVal);
-//        exit(returnVal);
-    }
-
-    /* parent continues... */
-    running = true;
-    failed = false;
-
-    if(outPtr) {
-    	outPtr->joined(true);
-    }
-    if(errPtr) {
-    	errPtr->joined(true);
-    }
-
-    return true;
-}
-
-int Process::wait() {
-    while(running) {
-        // in case we are reading from the child, we have to return from waitpid
-        // otherwise it might lead to a deadlock in case the child does not terminate
-        // because its output is not being consumed.
-    	updateStatus(true);
-    }
-
-    return exitStatus;
-}
-
-bool Process::isRunning() {
-	updateStatus(false);
-    return running;
-}
-
-bool Process::isFailed() {
-	updateStatus(false);
-    return failed;
-}
-
-pid_t Process::getPid() const {
-	if(timeDataMemory) {
-	    return timeData.pid;
+			if(WIFSIGNALED(rc)) {
+				// follow the same convention as bash of returning signal values in return codes by adding 128 to them
+				rc = 128 + WTERMSIG(rc);
+				break;
+			}
+		}
+		_exit(rc);
 	}
-    return pid;
+
+	/* fork failed */
+	if(pid < 0) {
+		throw std::runtime_error(std::string("fork() failed: ") + std::strerror(errno));
+	}
+
+	return pid;
 }
 
-unsigned int Process::getTimeRealMS() const {
-    return timeData.realMs;
+
+int Process::parentRun(Handle pid, ParentFileDescriptors fileDescriptors, ParameterFeatures& parameterFeatures) {
+	int rc = EXIT_FAILURE;
+
+	for(auto& parameterFeature : parameterFeatures) {
+		process::FeatureProcess* featureProcess = dynamic_cast<process::FeatureProcess*>(&parameterFeature.get());
+		if(featureProcess) {
+			featureProcess->setProcessHandle(pid);
+			continue;
+		}
+	}
+
+	while(true) {
+		bool processed = parentProcess(parentPoll(fileDescriptors));
+
+		if(processed) {
+			continue;
+		}
+
+		// in case we are reading from the child, we have to return from waitpid
+		// otherwise it might lead to a deadlock in case the child does not terminate
+		// because its output is not being consumed.
+		pid_t rcWaitPid = waitpid(pid, &rc, 0);
+
+		if(rcWaitPid == -1) {
+			if (errno == EINTR) {
+				continue;
+			}
+			/* on error */
+			rc = EXIT_FAILURE;
+			break;
+		}
+
+		if(WIFEXITED(rc)) {
+			rc = WEXITSTATUS(rc);
+			break;
+		}
+
+		if(WIFSIGNALED(rc)) {
+			// follow the same convention as bash of returning signal values in return codes by adding 128 to them
+			rc = 128 + WTERMSIG(rc);
+			break;
+		}
+	}
+
+	for(auto& parameterFeature : parameterFeatures) {
+		process::FeatureProcess* featureProcess = dynamic_cast<process::FeatureProcess*>(&parameterFeature.get());
+		if(featureProcess) {
+			featureProcess->setProcessHandle(noHandle);
+			continue;
+		}
+
+		process::FeatureTime* featureTime = dynamic_cast<process::FeatureTime*>(&parameterFeature.get());
+		if(featureTime) {
+			featureTime->setTimeDataPtr(nullptr);
+			continue;
+		}
+	}
+
+	return rc;
 }
 
-unsigned int Process::getTimeUserMS() const {
-    return timeData.userMs;
+Process::PollResults Process::parentPoll(ParentFileDescriptors& fileDescriptors) {
+	PollResults polledFileHandles;
+	std::vector<struct pollfd> pollFileHandles;
+
+	for(auto& fileDescriptor : fileDescriptors) {
+		if(!std::get<0>(fileDescriptor)) {
+			continue;
+		}
+
+		struct pollfd tmpPollFd;
+		tmpPollFd.fd = std::get<0>(fileDescriptor).getHandle();
+		tmpPollFd.events = 0;
+		if(std::get<1>(fileDescriptor)) {
+			tmpPollFd.events |= POLLOUT;
+		}
+		if(std::get<2>(fileDescriptor)) {
+			tmpPollFd.events |= POLLIN;
+		}
+		if(tmpPollFd.events != 0) {
+			pollFileHandles.push_back(tmpPollFd);
+			polledFileHandles.push_back(std::make_tuple(std::ref(std::get<0>(fileDescriptor)), std::get<1>(fileDescriptor), std::get<2>(fileDescriptor)));
+		}
+	}
+
+	if(pollFileHandles.empty() == false) {
+		while(poll(&pollFileHandles[0], pollFileHandles.size(), -1) == -1 && errno == EINTR) { }
+		for(std::size_t i = 0; i < pollFileHandles.size(); ++i) {
+			if((pollFileHandles[i].revents & POLLOUT) == 0) {
+				std::get<1>(polledFileHandles[i]) = nullptr;
+			}
+			if((pollFileHandles[i].revents & POLLIN) == 0) {
+				std::get<2>(polledFileHandles[i]) = nullptr;
+			}
+		}
+	}
+
+	return polledFileHandles;
 }
 
-unsigned int Process::getTimeSysMS() const {
-    return timeData.sysMs;
+bool Process::parentProcess(PollResults pollResults) {
+	bool processed = false;
+	for(auto& pollResult: pollResults) {
+		process::FileDescriptor& fileDescriptor = std::get<0>(pollResult).get();
+		bool allNpos = std::get<1>(pollResult) || std::get<2>(pollResult);
+
+		/* check if it is possible to send something to the process */
+		if(fileDescriptor && std::get<1>(pollResult)) {
+
+			/* send content to the process */
+			std::size_t count = std::get<1>(pollResult)->write(fileDescriptor);
+
+			if(count != 0) {
+				/* check if there is NO MORE content to send to the CGI script */
+				if(count == process::FileDescriptor::npos) {
+					/* close write file descriptor */
+					std::get<1>(pollResult) = nullptr;
+				}
+				else {
+					allNpos = false;
+				}
+
+				processed = true;
+			}
+			else {
+				allNpos = false;
+			}
+		}
+
+
+		/* check if it is possible to receive something from the process */
+		if(fileDescriptor && std::get<2>(pollResult)) {
+
+			/* reveive content from the process */
+			std::size_t count = std::get<2>(pollResult)->read(fileDescriptor);
+
+			if(count != 0) {
+				/* check if no more data to read desired. drop responseHandler */
+				if(count == process::FileDescriptor::npos) {
+					/* close write file descriptor */
+					std::get<2>(pollResult) = nullptr;
+				}
+				else {
+					allNpos = false;
+				}
+
+				processed = true;
+			}
+			else {
+				allNpos = false;
+			}
+		}
+
+		if(allNpos) {
+			fileDescriptor.close();
+		}
+	}
+
+	return processed;
 }
 
-/* ******************************************** */
-/* *** PRIVATE                              *** */
-/* ******************************************** */
+void Process::addParameterStream(ParameterStreams& parameterStreams, process::FileDescriptor::Handle handle, process::Producer* producer, process::Consumer* consumer) {
+	ParameterStream& parameterStream = parameterStreams[handle];
 
-void Process::updateStatus(bool doWait) {
-    if(!running) {
-        return;
-    }
+	if(producer == nullptr && consumer == nullptr) {
+    	if(parameterStream.producer && parameterStream.consumer) {
+    		throw std::runtime_error("Conflicting parameters: Flag defined to close handle " + std::to_string(handle) + " for child process, but there is already a producer and a consumer defined for this handle.");
+    	}
+    	else if(parameterStream.producer && parameterStream.consumer == nullptr) {
+    		throw std::runtime_error("Conflicting parameters: Flag defined to close handle " + std::to_string(handle) + " for child process, but there is already a producer defined for this handle.");
+    	}
+    	else if(parameterStream.producer == nullptr && parameterStream.consumer) {
+    		throw std::runtime_error("Conflicting parameters: Flag defined to close handle " + std::to_string(handle) + " for child process, but there is already a consumer defined for this handle.");
+    	}
+	}
+	else {
+    	if(producer) {
+        	if(parameterStream.producer) {
+        		throw std::runtime_error("Conflicting parameters: Multiple producer defined for handle " + std::to_string(handle) + " for child process.");
+        	}
+        	parameterStream.producer = producer;
+    	}
 
-    int tmpStatus;
-    int rc = waitpid(pid, &tmpStatus, doWait ? 0 : WNOHANG);
-
-    // should never happen if "doWait == false"
-    if(rc == -1) {
-    	// ERROR
-        return;
-    }
-
-    if(timeDataMemory) {
-        timeData = *timeDataMemory->getData();
-    }
-
-    // should never happen if "doWait == true"
-    // no status availabe
-    if(rc == 0) {
-        return;
-    }
-
-    /*
-    if(WIFSTOPPED(tmpStatus)) {
-    }
-    if(WIFCONTINUED(tmpStatus)) {
-    }
-    */
-
-    if(WIFSIGNALED(tmpStatus)) {
-        // follow the same convention as bash of returning signal values in return codes by adding 128 to them
-        exitStatus = 128 + WTERMSIG(tmpStatus);
-        failed = true;
-
-        running = false;
-    	timeDataMemory.reset();
-        if(outPtr) {
-        	outPtr->close();
-        }
-        if(errPtr) {
-        	errPtr->close();
-        }
-    }
-    if(WIFEXITED(tmpStatus)) {
-        exitStatus = WEXITSTATUS(tmpStatus);
-
-        running = false;
-    	timeDataMemory.reset();
-        if(outPtr) {
-        	outPtr->close();
-        }
-        if(errPtr) {
-        	errPtr->close();
-        }
-    }
+    	if(consumer) {
+        	if(parameterStream.consumer) {
+        		throw std::runtime_error("Conflicting parameters: Multiple producer defined for handle " + std::to_string(handle) + " for child process.");
+        	}
+        	parameterStream.consumer = consumer;
+    	}
+	}
 }
+
 
 } /* namespace zsystem */

@@ -20,25 +20,35 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
+#ifndef ZSYSTEM_PROCESS_ENVIRONMENT_H_
+#define ZSYSTEM_PROCESS_ENVIRONMENT_H_
 
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
+class Environment {
 public:
-	Backtrace();
-	~Backtrace() = default;
+	Environment();
+	Environment(const Environment&) = delete;
+	Environment(Environment&& other);
+	Environment(const std::vector<std::pair<std::string, std::string>>& values);
+	~Environment();
 
-	const std::vector<std::string>& getElements() const;
+	Environment& operator=(const Environment&) = delete;
+	Environment& operator=(Environment&& other);
+
+	char* const* getEnvp() const;
 
 private:
-	std::vector<std::string> elements;
+	std::size_t envc = 0;
+	char** envp = nullptr;
 };
 
+} /* namespace process */
 } /* namespace zsystem */
 
-#endif /* ZSYSTEM_BACKTRACE_H_ */
+#endif /* ZSYSTEM_PROCESS_ENVIRONMENT_H_ */

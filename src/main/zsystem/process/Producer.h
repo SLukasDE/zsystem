@@ -20,25 +20,30 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
+#ifndef ZSYSTEM_PROCESS_PRODUCER_H_
+#define ZSYSTEM_PROCESS_PRODUCER_H_
+
+#include <zsystem/process/FileDescriptor.h>
 
 #include <string>
-#include <vector>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
+class Producer {
 public:
-	Backtrace();
-	~Backtrace() = default;
+	virtual ~Producer() = default;
 
-	const std::vector<std::string>& getElements() const;
-
-private:
-	std::vector<std::string> elements;
+	/* return: FileDescriptor::npos
+	 *           if there is no more data to produce (IMPORTANT)
+	 *
+	 *         Number of characters written to fileDescriptor
+	 *           if there are data available to write to fileDescripor
+	 *           (produced now or queued from previous call). */
+	virtual std::size_t write(FileDescriptor& fileDescriptor) = 0;
 };
 
+} /* namespace process */
 } /* namespace zsystem */
 
-#endif /* ZSYSTEM_BACKTRACE_H_ */
+#endif /* ZSYSTEM_PROCESS_PRODUCER_H_ */

@@ -20,25 +20,44 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
-
-#include <string>
-#include <vector>
+#include <zsystem/process/ProducerFile.h>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
-public:
-	Backtrace();
-	~Backtrace() = default;
+ProducerFile::ProducerFile(FileDescriptor aFileDescriptor)
+: fileDescriptor(std::move(aFileDescriptor))
+{ }
 
-	const std::vector<std::string>& getElements() const;
+std::size_t ProducerFile::write(FileDescriptor& fileDescriptor) {
+	if(currentPos >= currentSize) {
+		currentPos = 0;
+		currentSize = getFileDescriptor().read(buffer, sizeof(buffer));
+	}
 
-private:
-	std::vector<std::string> elements;
-};
+	if(currentSize == 0 || currentSize == process::FileDescriptor::npos) {
+		return process::FileDescriptor::npos;
+	}
 
+	std::size_t count = fileDescriptor.write(&buffer[currentPos], currentSize - currentPos);
+	if(count != process::FileDescriptor::npos) {
+		currentPos += count;
+	}
+
+	return count;
+}
+
+std::size_t ProducerFile::getFileSize() const {
+	return fileDescriptor.getFileSize();
+}
+
+FileDescriptor& ProducerFile::getFileDescriptor() & {
+	return fileDescriptor;
+}
+
+FileDescriptor&& ProducerFile::getFileDescriptor() && {
+	return std::move(fileDescriptor);
+}
+
+} /* namespace process */
 } /* namespace zsystem */
-
-#endif /* ZSYSTEM_BACKTRACE_H_ */

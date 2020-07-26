@@ -20,25 +20,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
-
-#include <string>
-#include <vector>
+#ifndef ZSYSTEM_PROCESS_FEATURE_H_
+#define ZSYSTEM_PROCESS_FEATURE_H_
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
+class Feature {
 public:
-	Backtrace();
-	~Backtrace() = default;
-
-	const std::vector<std::string>& getElements() const;
-
-private:
-	std::vector<std::string> elements;
+	virtual ~Feature() = default;
 };
 
+} /* namespace process */
 } /* namespace zsystem */
 
-#endif /* ZSYSTEM_BACKTRACE_H_ */
+#endif /* ZSYSTEM_PROCESS_FEATURE_H_ */

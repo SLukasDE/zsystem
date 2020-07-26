@@ -20,25 +20,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
+#ifndef ZSYSTEM_PROCESS_CONSUMER_H_
+#define ZSYSTEM_PROCESS_CONSUMER_H_
+
+#include <zsystem/process/FileDescriptor.h>
 
 #include <string>
-#include <vector>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
+class Consumer {
 public:
-	Backtrace();
-	~Backtrace() = default;
+	virtual ~Consumer() = default;
 
-	const std::vector<std::string>& getElements() const;
-
-private:
-	std::vector<std::string> elements;
+	virtual std::size_t read(FileDescriptor& fileDescriptor) = 0;
 };
 
+} /* namespace process */
 } /* namespace zsystem */
 
-#endif /* ZSYSTEM_BACKTRACE_H_ */
+#endif /* ZSYSTEM_PROCESS_CONSUMER_H_ */

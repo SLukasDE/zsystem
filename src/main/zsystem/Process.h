@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019 Sven Lukas
+Copyright (c) 2019, 2020 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,135 +23,125 @@ SOFTWARE.
 #ifndef ZSYSTEM_PROCESS_H_
 #define ZSYSTEM_PROCESS_H_
 
-#include <zsystem/SharedMemory.h>
+//#include <zsystem/SharedMemory.h>
+#include <zsystem/process/Arguments.h>
+#include <zsystem/process/Environment.h>
+#include <zsystem/process/FileDescriptor.h>
+#include <zsystem/process/Producer.h>
+#include <zsystem/process/Consumer.h>
+#include <zsystem/process/Feature.h>
+#include <zsystem/process/FeatureTime.h>
+
 #include <unistd.h>
+
 #include <string>
-#include <list>
+#include <vector>
+#include <map>
+#include <tuple>
+#include <utility>
+#include <functional>
 #include <memory>
 
 namespace zsystem {
 
 class Process {
 public:
-    class Output {
-    friend class Process;
-    public:
-    	Output() = default;
-    	virtual ~Output() = default;
+	using Handle = pid_t;
+    static const Handle noHandle;
 
-    	virtual std::size_t read(void* buffer, std::size_t s) = 0;
-    	virtual bool setBlocking(bool blocking) = 0;
+	struct ParameterStream {
+		process::Producer* producer = nullptr;
+		process::Consumer* consumer = nullptr;
+	};
+	using ParameterStreams = std::map<process::FileDescriptor::Handle, ParameterStream>;
 
-    private:
-    	virtual bool open() = 0;
-    	virtual void join(int fd) = 0;
-    	virtual void joined(bool isParent) = 0;
-    	virtual void close() = 0;
-    };
+	using ParameterFeatures = std::vector<std::reference_wrapper<process::Feature>>;
 
-    class File : public Output {
-    public:
-    	File(std::string filename);
-    	~File();
+	Process(process::Arguments arguments, std::string workingDir = "");
+	Process(process::Arguments arguments, process::Environment environment, std::string workingDir = "");
 
-    	bool open() override;
-    	void join(int fd) override;
-    	void joined(bool) override;
-    	void close() override;
+	int execute();
+	int execute(process::FileDescriptor::Handle handle);
+	int execute(process::Producer& producer, process::FileDescriptor::Handle handle);
+	int execute(process::Consumer& consumer, process::FileDescriptor::Handle handle);
+	int execute(process::Feature& feature);
+	int execute(const ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures);
 
-    	std::size_t read(void* buffer, std::size_t s) override;
-    	bool setBlocking(bool blocking) override;
+    template<typename... Args>
+	int execute(process::FileDescriptor::Handle handle, Args&... args) {
+    	ParameterStreams parameterStreams;
+    	ParameterFeatures parameterFeatures;
 
-    private:
-    	std::string filename;
-    	int fdFile = -1;
-    };
+    	addParameterStream(parameterStreams, handle, nullptr, nullptr);
+    	return execute(parameterStreams, parameterFeatures, args...);
+    }
 
-    class Pipe: public Output {
-    public:
-    	Pipe();
-    	~Pipe();
+    template<typename... Args>
+	int execute(process::Producer& producer, process::FileDescriptor::Handle handle, Args&... args) {
+    	ParameterStreams parameterStreams;
+    	ParameterFeatures parameterFeatures;
 
+    	addParameterStream(parameterStreams, handle, &producer, nullptr);
+    	return execute(parameterStreams, parameterFeatures, args...);
+    }
 
-    	bool open() override;
-    	void join(int fd) override;
-    	void joined(bool isParent) override;
-    	void close() override;
+	template<typename... Args>
+	int execute(process::Consumer& consumer, process::FileDescriptor::Handle handle, Args&... args) {
+		ParameterStreams parameterStreams;
+		ParameterFeatures parameterFeatures;
 
-    	std::size_t read(void* buffer, std::size_t s) override;
-    	bool setBlocking(bool blocking) override;
+		addParameterStream(parameterStreams, handle, nullptr, &consumer);
+    	return execute(parameterStreams, parameterFeatures, args...);
+    }
 
-    private:
-    	int pipefd[2];
-    	int readFlags = 0;
-    };
+	template<typename... Args>
+	int execute(process::Feature& feature, Args&... args) {
+		ParameterFeatures parameterFeatures;
 
-    class Default : public Output {
-    public:
-    	Default() = default;
-    	~Default() = default;
-
-    	bool open() override;
-    	void join(int) override;
-    	void joined(bool) override;
-    	void close() override;
-
-    	std::size_t read(void*, std::size_t);
-    	bool setBlocking(bool blocking);
-    };
-
-    Process() = default;
-    ~Process();
-
-    void enableTimeMeasurement(bool enabled);
-    void setWorkingDirectory(const std::string& workingDirectory);
-
-    void setStdOut(Output* output);
-    void setStdErr(Output* output);
-
-    /* return true on success */
-    bool execute(const std::string& executable, const std::list<std::string>& arguments);
-
-    int wait();
-    bool isRunning();
-    bool isFailed();
-
-    unsigned int getTimeRealMS() const;
-    unsigned int getTimeUserMS() const;
-    unsigned int getTimeSysMS() const;
-
-    pid_t getPid() const;
+		parameterFeatures.emplace_back(std::ref(feature));
+    	return execute(ParameterStreams(), parameterFeatures, args...);
+	}
 
 private:
-    struct TimeData {
-        unsigned int realMs = 0;
-        unsigned int userMs = 0;
-        unsigned int sysMs = 0;
-        pid_t pid = 0;
-    };
+	template<typename... Args>
+	int execute(ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures, process::FileDescriptor::Handle handle, Args&... args) {
+		addParameterStream(parameterStreams, handle, nullptr, nullptr);
+    	return execute(parameterStreams, parameterFeatures, args...);
+    }
 
-    void updateStatus(bool doWait);
+    template<typename... Args>
+	int execute(ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures, process::Producer& producer, process::FileDescriptor::Handle handle, Args&... args) {
+    	addParameterStream(parameterStreams, handle, &producer, nullptr);
+    	return execute(parameterStreams, parameterFeatures, args...);
+    }
+
+	template<typename... Args>
+	int execute(ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures, process::Consumer& consumer, process::FileDescriptor::Handle handle, Args&... args) {
+		addParameterStream(parameterStreams, handle, nullptr, &consumer);
+    	return execute(parameterStreams, parameterFeatures, args...);
+	}
+
+	template<typename... Args>
+	int execute(ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures, process::Feature& feature, Args&... args) {
+		parameterFeatures.emplace_back(std::ref(feature));
+    	return execute(ParameterStreams(), parameterFeatures, args...);
+	}
+
+	using ChildFileDescriptors = std::map<process::FileDescriptor::Handle, process::FileDescriptor>;
+	using ParentFileDescriptors = std::vector<std::tuple<process::FileDescriptor, process::Producer*, process::Consumer*>>;
+	using PollResults = std::vector<std::tuple<std::reference_wrapper<process::FileDescriptor>, process::Producer*, process::Consumer*>>;
 
 
-    std::unique_ptr<Output> outErr;
-    std::unique_ptr<Output> err;
+	Handle childRun(ChildFileDescriptors fileDescriptors, ParameterFeatures& parameterFeatures, process::FeatureTime::TimeData* timeData);
+	static int parentRun(Handle pid, ParentFileDescriptors fileDescriptors, ParameterFeatures& parameterFeatures);
+	static PollResults parentPoll(ParentFileDescriptors& fileDescriptors);
+	static bool parentProcess(PollResults pollResults);
 
-    Output* outPtr = nullptr;
-    Output* errPtr = nullptr;
+	static void addParameterStream(ParameterStreams& parameterStreams, process::FileDescriptor::Handle handle, process::Producer* producer, process::Consumer* consumer);
 
-    bool doTimeMeasurement = false;
-    std::string workingDirectory;
-
-    static int fdNull;
-    pid_t pid = 0;
-    bool running = false;
-    bool failed = false;
-    int exitStatus = -1;
-    char** argv = nullptr;
-
-    static long double clktck;
-    TimeData timeData;
-    std::unique_ptr<SharedMemory<TimeData>> timeDataMemory;
+	process::Arguments arguments;
+	std::unique_ptr<process::Environment> environment;
+	std::string workingDir;
 };
 
 } /* namespace zsystem */

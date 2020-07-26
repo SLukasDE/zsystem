@@ -20,25 +20,40 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef ZSYSTEM_BACKTRACE_H_
-#define ZSYSTEM_BACKTRACE_H_
+#ifndef ZSYSTEM_PROCESS_ARGUMENTS_H_
+#define ZSYSTEM_PROCESS_ARGUMENTS_H_
 
 #include <string>
-#include <vector>
 
 namespace zsystem {
+namespace process {
 
-class Backtrace {
+class Arguments {
 public:
-	Backtrace();
-	~Backtrace() = default;
+	Arguments() = default;
+	Arguments(const Arguments& other);
+	Arguments(Arguments&& other);
+	Arguments(std::string args);
+	Arguments(std::size_t argc, const char** argv);
+	~Arguments();
 
-	const std::vector<std::string>& getElements() const;
+	Arguments& operator=(const Arguments& other);
+	Arguments& operator=(Arguments&& other);
+
+	const std::string& getArgs() const noexcept;
+	std::size_t getArgc() const noexcept;
+	char** getArgv() const noexcept;
 
 private:
-	std::vector<std::string> elements;
+	static const char* argumentSize(const char* src, std::size_t& length);
+	static const char* argumentCopy(const char* src, char* dst);
+
+	std::string args;
+	std::size_t argc = 0;
+	char** argv = nullptr;
 };
 
+} /* namespace process */
 } /* namespace zsystem */
 
-#endif /* ZSYSTEM_BACKTRACE_H_ */
+#endif /* ZSYSTEM_PROCESS_ARGUMENTS_H_ */
