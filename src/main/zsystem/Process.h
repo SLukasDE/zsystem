@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019, 2020 Sven Lukas
+Copyright (c) 2019-2021 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +23,6 @@ SOFTWARE.
 #ifndef ZSYSTEM_PROCESS_H_
 #define ZSYSTEM_PROCESS_H_
 
-//#include <zsystem/SharedMemory.h>
 #include <zsystem/process/Arguments.h>
 #include <zsystem/process/Environment.h>
 #include <zsystem/process/FileDescriptor.h>
@@ -57,8 +56,11 @@ public:
 
 	using ParameterFeatures = std::vector<std::reference_wrapper<process::Feature>>;
 
-	Process(process::Arguments arguments, std::string workingDir = "");
-	Process(process::Arguments arguments, process::Environment environment, std::string workingDir = "");
+	Process(process::Arguments arguments);
+
+	void setWorkingDir(std::string workingDir);
+	void setEnvironment(std::unique_ptr<process::Environment> environment);
+	const process::Environment* getEnvironment() const;
 
 	int execute();
 	int execute(process::FileDescriptor::Handle handle);
@@ -102,6 +104,8 @@ public:
     	return execute(ParameterStreams(), parameterFeatures, args...);
 	}
 
+	Handle getHandle() const;
+
 private:
 	template<typename... Args>
 	int execute(ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures, process::FileDescriptor::Handle handle, Args&... args) {
@@ -142,6 +146,8 @@ private:
 	process::Arguments arguments;
 	std::unique_ptr<process::Environment> environment;
 	std::string workingDir;
+
+	Handle pid = noHandle;
 };
 
 } /* namespace zsystem */

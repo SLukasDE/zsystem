@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019, 2020 Sven Lukas
+Copyright (c) 2019-2021 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -27,6 +27,7 @@ SOFTWARE.
 #include <algorithm>
 #include <functional>
 #include <exception>
+
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -37,7 +38,7 @@ namespace {
 
 class LambdaSignalHandler : public SignalHandler {
 public:
-    LambdaSignalHandler(Type signalType, std::function<void()> handler)
+    LambdaSignalHandler(Signal::Type signalType, std::function<void()> handler)
     : SignalHandler(signalType),
       handler(handler)
     {
@@ -54,8 +55,7 @@ protected:
 struct InstalledSignalHandlers {
 	InstalledSignalHandlers(int signalNumber)
 	: signalNumber(signalNumber)
-	{
-	}
+	{ }
 
 	const int signalNumber;
 	bool failure = false;
@@ -81,33 +81,33 @@ InstalledSignalHandlers installedSignalHandlersTerminate(SIGTERM);             /
 InstalledSignalHandlers installedSignalHandlersStackFault(SIGSTKFLT);          // 16
 InstalledSignalHandlers installedSignalHandlersChild(SIGCHLD);                 // 17
 
-std::map<SignalHandler::Type, InstalledSignalHandlers> installedSignalHandlersByType = {
-		{SignalHandler::Type::hangUp,                 installedSignalHandlersHangUp},
-		{SignalHandler::Type::interrupt,              installedSignalHandlersInterrupt},
-		{SignalHandler::Type::quit,                   installedSignalHandlersQuit},
-		{SignalHandler::Type::ill,                    installedSignalHandlersIll},
-		{SignalHandler::Type::trap,                   installedSignalHandlersTrap},
-		{SignalHandler::Type::abort,                  installedSignalHandlersAbort},
-		{SignalHandler::Type::busError,               installedSignalHandlersBusError},
-		{SignalHandler::Type::floatingPointException, installedSignalHandlersFloatingPointException},
-		{SignalHandler::Type::user1,                  installedSignalHandlersUser1},
-		{SignalHandler::Type::segmentationViolation,  installedSignalHandlersSegmentationViolation},
-		{SignalHandler::Type::user2,                  installedSignalHandlersUser2},
-		{SignalHandler::Type::pipe,                   installedSignalHandlersPipe},
-		{SignalHandler::Type::alarm,                  installedSignalHandlersAlarm},
-		{SignalHandler::Type::stackFault,             installedSignalHandlersStackFault},
-		{SignalHandler::Type::terminate,              installedSignalHandlersTerminate},
-		{SignalHandler::Type::child,                  installedSignalHandlersIll}
+std::map<Signal::Type, InstalledSignalHandlers> installedSignalHandlersByType = {
+		{Signal::Type::hangUp,                 installedSignalHandlersHangUp},
+		{Signal::Type::interrupt,              installedSignalHandlersInterrupt},
+		{Signal::Type::quit,                   installedSignalHandlersQuit},
+		{Signal::Type::ill,                    installedSignalHandlersIll},
+		{Signal::Type::trap,                   installedSignalHandlersTrap},
+		{Signal::Type::abort,                  installedSignalHandlersAbort},
+		{Signal::Type::busError,               installedSignalHandlersBusError},
+		{Signal::Type::floatingPointException, installedSignalHandlersFloatingPointException},
+		{Signal::Type::user1,                  installedSignalHandlersUser1},
+		{Signal::Type::segmentationViolation,  installedSignalHandlersSegmentationViolation},
+		{Signal::Type::user2,                  installedSignalHandlersUser2},
+		{Signal::Type::pipe,                   installedSignalHandlersPipe},
+		{Signal::Type::alarm,                  installedSignalHandlersAlarm},
+		{Signal::Type::stackFault,             installedSignalHandlersStackFault},
+		{Signal::Type::terminate,              installedSignalHandlersTerminate},
+		{Signal::Type::child,                  installedSignalHandlersIll}
 };
 
-InstalledSignalHandlers* signalTypeToInstalledSignalHandlers(SignalHandler::Type signalType) {
+InstalledSignalHandlers* signalTypeToInstalledSignalHandlers(Signal::Type signalType) {
 	auto iter = installedSignalHandlersByType.find(signalType);
 	return (iter == std::end(installedSignalHandlersByType)) ? nullptr : &iter->second;
 }
 
 InstalledSignalHandlers* signalNumberToInstalledSignalHandlers(int signalNumber) {
 	auto iter = std::find_if(std::begin(installedSignalHandlersByType), std::end(installedSignalHandlersByType),
-			[signalNumber](const std::pair<SignalHandler::Type, InstalledSignalHandlers>& e) {
+			[signalNumber](const std::pair<Signal::Type, InstalledSignalHandlers>& e) {
 		return e.second.signalNumber == signalNumber;
 	});
 	return (iter == std::end(installedSignalHandlersByType)) ? nullptr : &iter->second;
@@ -115,7 +115,7 @@ InstalledSignalHandlers* signalNumberToInstalledSignalHandlers(int signalNumber)
 
 void signalHandler(int signalNumber) {
 	auto iter = std::find_if(std::begin(installedSignalHandlersByType), std::end(installedSignalHandlersByType),
-			[signalNumber](const std::pair<SignalHandler::Type, InstalledSignalHandlers>& e) {
+			[signalNumber](const std::pair<Signal::Type, InstalledSignalHandlers>& e) {
 		return e.second.signalNumber == signalNumber;
 	});
 
@@ -130,7 +130,7 @@ void signalHandler(int signalNumber) {
 
 } /* namespace {anonymous} */
 
-SignalHandler::SignalHandler(Type signalType)
+SignalHandler::SignalHandler(Signal::Type signalType)
 : type(signalType)
 {
 	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
@@ -175,11 +175,11 @@ SignalHandler::~SignalHandler() {
     }
 }
 
-void SignalHandler::install(Type signalType, std::function<void()> handler) {
+void SignalHandler::install(Signal::Type signalType, std::function<void()> handler) {
 	new LambdaSignalHandler(signalType, handler);
 }
 
-void SignalHandler::remove(Type signalType, std::function<void()> handler) {
+void SignalHandler::remove(Signal::Type signalType, std::function<void()> handler) {
 	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
 	for(auto signalHandlerObj : installedSignalHandlers->handlers) {
 		LambdaSignalHandler* ptr = dynamic_cast<LambdaSignalHandler*>(&signalHandlerObj.get());
@@ -190,7 +190,7 @@ void SignalHandler::remove(Type signalType, std::function<void()> handler) {
 	}
 }
 
-void SignalHandler::handle(SignalHandler::Type signalType) {
+void SignalHandler::handle(Signal::Type signalType) {
     InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
 
     if(installedSignalHandlers == nullptr) {

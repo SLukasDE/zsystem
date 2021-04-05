@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019, 2020 Sven Lukas
+Copyright (c) 2019-2021 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,8 @@ SOFTWARE.
 #ifndef ZSYSTEM_SIGNALHANDLER_H_
 #define ZSYSTEM_SIGNALHANDLER_H_
 
+#include <zsystem/Signal.h>
+
 #include <functional>
 
 namespace zsystem {
@@ -42,39 +44,20 @@ namespace zsystem {
 
 class SignalHandler {
 public:
-	enum class Type {
-	    unknown,
-		hangUp,
-	    interrupt,
-	    quit,
-		ill,
-		trap,
-		abort,
-		busError,
-		floatingPointException,
-		segmentationViolation,
-		user1,
-		user2,
-		alarm,
-		child,
-		stackFault,
-	    terminate,
-	    pipe
-	};
 
-    SignalHandler(Type signalType);
+    SignalHandler(Signal::Type signalType);
     virtual ~SignalHandler();
 
-    static void install(Type signalType, std::function<void()> handler);
-    static void remove(Type signalType, std::function<void()> handler);
+    static void install(Signal::Type signalType, std::function<void()> handler);
+    static void remove(Signal::Type signalType, std::function<void()> handler);
 
-    static void handle(Type signalType);
+    static void handle(Signal::Type signalType);
 
 protected:
     virtual void invoke() = 0;
 
 private:
-    Type type;
+    Signal::Type type;
 };
 
 } /* namespace zsystem */

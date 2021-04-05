@@ -1,6 +1,6 @@
 /*
 MIT License
-Copyright (c) 2019, 2020 Sven Lukas
+Copyright (c) 2019-2021 Sven Lukas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -44,16 +44,21 @@ namespace zsystem {
 
 const Process::Handle Process::noHandle = -1;
 
-Process::Process(process::Arguments aArguments, std::string aWorkingDir)
-: arguments(std::move(aArguments)),
-  workingDir(std::move(aWorkingDir))
+Process::Process(process::Arguments aArguments)
+: arguments(std::move(aArguments))
 { }
 
-Process::Process(process::Arguments aArguments, process::Environment aEnvironment, std::string aWorkingDir)
-: arguments(std::move(aArguments)),
-  environment(new process::Environment(std::move(aEnvironment))),
-  workingDir(std::move(aWorkingDir))
-{ }
+void Process::setWorkingDir(std::string aWorkingDir) {
+	workingDir = std::move(aWorkingDir);
+}
+
+void Process::setEnvironment(std::unique_ptr<process::Environment> aEnvironment) {
+	environment = std::move(aEnvironment);
+}
+
+const process::Environment* Process::getEnvironment() const {
+	return environment.get();
+}
 
 int Process::execute() {
 	ParameterFeatures parameterFeatures;
@@ -144,8 +149,14 @@ int Process::execute(const ParameterStreams& parameterStreams, ParameterFeatures
 		}
 	}
 
-	Handle pid = childRun(std::move(childFileDescriptors), parameterFeatures, (timeData ? timeData.get()->getData() : nullptr));
-	return parentRun(pid, std::move(parentFileDescriptors), parameterFeatures);
+	pid = childRun(std::move(childFileDescriptors), parameterFeatures, (timeData ? timeData.get()->getData() : nullptr));
+	int rc = parentRun(pid, std::move(parentFileDescriptors), parameterFeatures);
+	pid = noHandle;
+	return rc;
+}
+
+Process::Handle Process::getHandle() const {
+	return pid;
 }
 
 Process::Handle Process::childRun(ChildFileDescriptors fileDescriptors, ParameterFeatures& parameterFeatures, process::FeatureTime::TimeData* timeData) {

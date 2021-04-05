@@ -38,9 +38,9 @@ public:
 void printTestcase_1() {
 	std::cout <<
 			"  1  Execute \"/usr/bin/kwrite\".\n"
+			"     - Close stdin.\n"
 			"     - Redirect stdout to OWN CONSUMER (kwrite only writes to stderr).\n"
 			"     - Not closing stderr.\n"
-			"     - Produce nothing to stdin.\n"
 			"     Result:\n"
 			"     - Consumer should displayed nothing, because kwrite does not write to stdout.\n"
 			"     - But kwrite writes to stderr. This should be displayed directly.\n"
@@ -49,20 +49,21 @@ void printTestcase_1() {
 
 void printTestcase_2() {
 	std::cout <<
-			"  2  Execute \"/usr/bin/cat ../datarunner-backup/src/main/tinyxml/tinyxml.h\".\n"
-			"     - Redirect stdout to nothing.\n"
-			"     - Redirect nothing to stdin.\n"
+			"  2  Execute \"/usr/bin/cat ./data/tinyxml.h\".\n"
+			"     - Close stdin.\n"
+			"     - Close stdout.\n"
 			"     - Not closing stderr.\n"
 			"     Result:\n"
 			"     - Nothing should be displayed.\n"
+			"     - Maybe \"/usr/bin/cat\" writes an error message to stderr because stdout has been closed\n"
 			"\n";
 }
 
 void printTestcase_3() {
 	std::cout <<
-			"  3  Execute \"/usr/bin/cat ../datarunner-backup/src/main/tinyxml/tinyxml.h\".\n"
+			"  3  Execute \"/usr/bin/cat ./data/tinyxml/tinyxml.h\".\n"
+			"     - Close stdin.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
-			"     - Redirect nothing to stdin.\n"
 			"     - Not closing stderr.\n"
 			"     Result:\n"
 			"     - Consumer should display stdout in 4096 bytes chunks.\n"
@@ -71,21 +72,23 @@ void printTestcase_3() {
 
 void printTestcase_4() {
 	std::cout <<
-			"  4  Execute \"/usr/bin/cat ../datarunner-backup/src/main/tinyxml/tinyxml.h\".\n"
+			"  4  Execute \"/usr/bin/cat ./data/tinyxml.h\".\n"
+			"     - Close stdin.\n"
 			"     - Redirect stdout to \"/tmp/result.txt\"\n"
-			"     - Redirect nothing to stdin.\n"
+			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - \"/tmp/result.txt\" should be a copy of \"../datarunner-backup/src/main/tinyxml/tinyxml.h\".\n"
+			"     - \"/tmp/result.txt\" should be a copy of \"./data/tinyxml.h\".\n"
 			"\n";
 }
 
 void printTestcase_5() {
 	std::cout <<
 			"  5  Execute \"/usr/bin/sed -n w\\ /tmp/result2.txt\".\n"
+			"     - Close stdin.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
-			"     - Redirect nothing to stdin.\n"
+			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - No input is redirected to \"sed\", so \"sed\" writes nothing to \"/tmp/result2.txt\".\n"
+			"     - StdIn is closed, so \"sed\" writes nothing to \"/tmp/result2.txt\".\n"
 			"     - \"sed\" writes as well nothing to stdout, so consumer should display nothing.\n"
 			"     - \"/tmp/result2.txt\" should be empty.\n"
 			"\n";
@@ -94,8 +97,9 @@ void printTestcase_5() {
 void printTestcase_6() {
 	std::cout <<
 			"  6  Execute \"/usr/bin/sed -n w\\ /tmp/result2.txt\".\n"
+			"     - Redirect stdin to OWN PRODUCER.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
-			"     - Redirect OWN PRODUCER to stdin.\n"
+			"     - Close stderr.\n"
 			"     Result:\n"
 			"     - Producer writes \"Hello\\nWorld!\\n\" to \"sed\".\n"
 			"     - \"sed\" writes \"Hello\\nWorld!\\n\" to \"/tmp/result2.txt\" and nothing to stdout.\n"
@@ -106,8 +110,9 @@ void printTestcase_6() {
 void printTestcase_7() {
 	std::cout <<
 			"  7  Execute \"/usr/bin/sed -n w\\ /dev/stdout\".\n"
+			"     - Redirect stdin to OWN PRODUCER.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
-			"     - Redirect OWN PRODUCER to stdin.\n"
+			"     - Close stderr.\n"
 			"     Result:\n"
 			"     - Producer writes \"Hello\\nWorld!\\n\" to \"sed\".\n"
 			"     - \"sed\" writes \"Hello\\nWorld!\\n\" to stdout.\n"
@@ -118,24 +123,26 @@ void printTestcase_7() {
 void printTestcase_8() {
 	std::cout <<
 			"  8  Execute \"/usr/bin/sed -n w\\ /dev/stdout\".\n"
+			"     - Redirect \"./data/tinyxml.h\" to stdin.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
-			"     - Redirect \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" to stdin.\n"
+			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - FD of \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" is set to stdin of \"sed\".\n"
-			"     - \"sed\" writes content of \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" to stdout.\n"
-			"     - Consumer should display content of \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" in 4096 bytes chunks..\n"
+			"     - FD of \"../data/tinyxml.h\" is set to stdin of \"sed\".\n"
+			"     - \"sed\" writes content of \"../data/tinyxml.h\" to stdout.\n"
+			"     - Consumer should display content of \"./data/tinyxml.h\" in 4096 bytes chunks..\n"
 			"\n";
 }
 
 void printTestcase_9() {
 	std::cout <<
 			"  9  Execute \"/usr/bin/sed -n w\\ /dev/stdout\".\n"
+			"     - Redirect \"./data/tinyxml.h\" to stdin.\n"
 			"     - Redirect stdout to \"/tmp/result.txt\".\n"
-			"     - Redirect \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" to stdin.\n"
+			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - FD of \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" is set as stdin of \"sed\".\n"
+			"     - FD of \"./data/tinyxml.h\" is set as stdin of \"sed\".\n"
 			"     - FD of \"/tmp/result.txt\" is set as stdout of \"sed\".\n"
-			"     - \"sed\" writes content of \"../datarunner-backup/src/main/tinyxml/tinyxml.h\" to \"/tmp/result.txt\".\n"
+			"     - \"sed\" writes content of \"../data/tinyxml.h\" to \"/tmp/result.txt\".\n"
 			"\n";
 }
 
@@ -173,7 +180,7 @@ int main(int argc, char* argv[]) {
 			printTestcase_1();
 		}
 		else if(testcase == "2") {
-			Process process(Arguments("/usr/bin/cat ../datarunner-backup/src/main/tinyxml/tinyxml.h"));
+			Process process(Arguments("/usr/bin/cat ./data/tinyxml.h"));
 			process.execute(FileDescriptor::stdErrHandle);
 
 			std::cout << "\n\nExecuted testcase:\n";
@@ -182,7 +189,7 @@ int main(int argc, char* argv[]) {
 		else if(testcase == "3") {
 			MyConsumer myConsumer;
 
-			Process process(Arguments("/usr/bin/cat ../datarunner-backup/src/main/tinyxml/tinyxml.h"));
+			Process process(Arguments("/usr/bin/cat ./data/tinyxml.h"));
 			process.execute(myConsumer, FileDescriptor::stdOutHandle, FileDescriptor::stdErrHandle);
 
 			std::cout << "\n\nExecuted testcase:\n";
@@ -191,7 +198,7 @@ int main(int argc, char* argv[]) {
 		else if(testcase == "4") {
 			ConsumerFile myConsumer(FileDescriptor::openFile("/tmp/result.txt", false, true, true));
 
-			Process process(Arguments("/usr/bin/cat ../datarunner-backup/src/main/tinyxml/tinyxml.h"));
+			Process process(Arguments("/usr/bin/cat ./data/tinyxml.h"));
 			process.execute(myConsumer, FileDescriptor::stdOutHandle);
 
 			std::cout << "\n\nExecuted testcase:\n";
@@ -228,7 +235,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if(testcase == "8") {
 			MyConsumer myConsumer;
-			ProducerFile myProducer(FileDescriptor::openFile("../datarunner-backup/src/main/tinyxml/tinyxml.h", true, false, false));
+			ProducerFile myProducer(FileDescriptor::openFile("./data/tinyxml.h", true, false, false));
 
 			Process process(Arguments("/usr/bin/sed -n w\\ /dev/stdout"));
 			process.execute(myProducer, FileDescriptor::stdInHandle, myConsumer, FileDescriptor::stdOutHandle);
@@ -238,7 +245,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if(testcase == "9") {
 			ConsumerFile myConsumer(FileDescriptor::openFile("/tmp/result.txt", false, true, true));
-			ProducerFile myProducer(FileDescriptor::openFile("../datarunner-backup/src/main/tinyxml/tinyxml.h", true, false, false));
+			ProducerFile myProducer(FileDescriptor::openFile("./data/tinyxml.h", true, false, false));
 
 			Process process(Arguments("/usr/bin/sed -n w\\ /dev/stdout"));
 			process.execute(myConsumer, FileDescriptor::stdOutHandle, myProducer, FileDescriptor::stdInHandle);
