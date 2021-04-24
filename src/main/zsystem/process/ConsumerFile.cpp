@@ -29,22 +29,30 @@ ConsumerFile::ConsumerFile(FileDescriptor aFileDescriptor)
 : fileDescriptor(std::move(aFileDescriptor))
 { }
 
-std::size_t ConsumerFile::read(FileDescriptor& fileDescriptor) {
+bool ConsumerFile::consume(FileDescriptor& fileDescriptor) {
+	if(currentPos == process::FileDescriptor::npos) {
+		return false;
+	}
+
 	if(currentPos >= currentSize) {
 		currentPos = 0;
 		currentSize = fileDescriptor.read(buffer, sizeof(buffer));
 	}
 
 	if(currentSize == process::FileDescriptor::npos) {
-		return process::FileDescriptor::npos;
+		currentPos = process::FileDescriptor::npos;
+		return false;
+		//return process::FileDescriptor::npos;
 	}
 
 	std::size_t count = getFileDescriptor().write(&buffer[currentPos], currentSize - currentPos);
-	if(count != process::FileDescriptor::npos) {
-		currentPos += count;
+	if(count == process::FileDescriptor::npos) {
+		currentPos = process::FileDescriptor::npos;
+		return false;
 	}
 
-	return count;
+	currentPos += count;
+	return true;
 }
 
 FileDescriptor& ConsumerFile::getFileDescriptor() & {

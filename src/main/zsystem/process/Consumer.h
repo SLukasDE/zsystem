@@ -34,7 +34,7 @@ class Consumer {
 public:
 	virtual ~Consumer() = default;
 
-	virtual std::size_t read(FileDescriptor& fileDescriptor) = 0;
+	virtual bool consume(FileDescriptor& fileDescriptor) = 0;
 };
 
 } /* namespace process */

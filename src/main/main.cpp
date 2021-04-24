@@ -20,18 +20,21 @@ class MyConsumer : public Consumer {
 public:
 	MyConsumer() = default;
 
-	std::size_t read(FileDescriptor& fileDescriptor) override {
+	bool consume(FileDescriptor& fileDescriptor) override {
 		char buffer[4096];
 		std::size_t count = fileDescriptor.read(buffer, sizeof(buffer));
-		if(count != FileDescriptor::npos) {
-			std::string str(buffer, count);
-			std::cout << "CONSUMED (" << count << " bytes)\n"
-					<< "*** CONSUMED BEGIN ***\n"
-					<< str << "\n"
-					<< "*** CONSUMED END ***\n"
-					<< "\n";
+		if(count == FileDescriptor::npos) {
+			return false;
 		}
-		return count;
+
+		std::string str(buffer, count);
+		std::cout << "CONSUMED (" << count << " bytes)\n"
+				<< "*** CONSUMED BEGIN ***\n"
+				<< str << "\n"
+				<< "*** CONSUMED END ***\n"
+				<< "\n";
+		return true;
+		//return count;
 	}
 };
 
@@ -49,7 +52,7 @@ void printTestcase_1() {
 
 void printTestcase_2() {
 	std::cout <<
-			"  2  Execute \"/usr/bin/cat ./data/tinyxml.h\".\n"
+			"  2  Execute \"/usr/bin/cat ./data/lorem_ipsum.txt\".\n"
 			"     - Close stdin.\n"
 			"     - Close stdout.\n"
 			"     - Not closing stderr.\n"
@@ -61,7 +64,7 @@ void printTestcase_2() {
 
 void printTestcase_3() {
 	std::cout <<
-			"  3  Execute \"/usr/bin/cat ./data/tinyxml/tinyxml.h\".\n"
+			"  3  Execute \"/usr/bin/cat ./data/tinyxml/lorem_ipsum.txt\".\n"
 			"     - Close stdin.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
 			"     - Not closing stderr.\n"
@@ -72,12 +75,12 @@ void printTestcase_3() {
 
 void printTestcase_4() {
 	std::cout <<
-			"  4  Execute \"/usr/bin/cat ./data/tinyxml.h\".\n"
+			"  4  Execute \"/usr/bin/cat ./data/lorem_ipsum.txt\".\n"
 			"     - Close stdin.\n"
 			"     - Redirect stdout to \"/tmp/result.txt\"\n"
 			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - \"/tmp/result.txt\" should be a copy of \"./data/tinyxml.h\".\n"
+			"     - \"/tmp/result.txt\" should be a copy of \"./data/lorem_ipsum.txt\".\n"
 			"\n";
 }
 
@@ -123,26 +126,26 @@ void printTestcase_7() {
 void printTestcase_8() {
 	std::cout <<
 			"  8  Execute \"/usr/bin/sed -n w\\ /dev/stdout\".\n"
-			"     - Redirect \"./data/tinyxml.h\" to stdin.\n"
+			"     - Redirect \"./data/lorem_ipsum.txt\" to stdin.\n"
 			"     - Redirect stdout to OWN CONSUMER.\n"
 			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - FD of \"../data/tinyxml.h\" is set to stdin of \"sed\".\n"
-			"     - \"sed\" writes content of \"../data/tinyxml.h\" to stdout.\n"
-			"     - Consumer should display content of \"./data/tinyxml.h\" in 4096 bytes chunks..\n"
+			"     - FD of \"./data/lorem_ipsum.txt\" is set to stdin of \"sed\".\n"
+			"     - \"sed\" writes content of \"./data/lorem_ipsum.txt\" to stdout.\n"
+			"     - Consumer should display content of \"./data/lorem_ipsum.txt\" in 4096 bytes chunks..\n"
 			"\n";
 }
 
 void printTestcase_9() {
 	std::cout <<
 			"  9  Execute \"/usr/bin/sed -n w\\ /dev/stdout\".\n"
-			"     - Redirect \"./data/tinyxml.h\" to stdin.\n"
+			"     - Redirect \"./data/lorem_ipsum.txt\" to stdin.\n"
 			"     - Redirect stdout to \"/tmp/result.txt\".\n"
 			"     - Close stderr.\n"
 			"     Result:\n"
-			"     - FD of \"./data/tinyxml.h\" is set as stdin of \"sed\".\n"
+			"     - FD of \"./data/lorem_ipsum.txt\" is set as stdin of \"sed\".\n"
 			"     - FD of \"/tmp/result.txt\" is set as stdout of \"sed\".\n"
-			"     - \"sed\" writes content of \"../data/tinyxml.h\" to \"/tmp/result.txt\".\n"
+			"     - \"sed\" writes content of \"./data/lorem_ipsum.txt\" to \"/tmp/result.txt\".\n"
 			"\n";
 }
 
@@ -180,7 +183,7 @@ int main(int argc, char* argv[]) {
 			printTestcase_1();
 		}
 		else if(testcase == "2") {
-			Process process(Arguments("/usr/bin/cat ./data/tinyxml.h"));
+			Process process(Arguments("/usr/bin/cat ./data/lorem_ipsum.txt"));
 			process.execute(FileDescriptor::stdErrHandle);
 
 			std::cout << "\n\nExecuted testcase:\n";
@@ -189,7 +192,7 @@ int main(int argc, char* argv[]) {
 		else if(testcase == "3") {
 			MyConsumer myConsumer;
 
-			Process process(Arguments("/usr/bin/cat ./data/tinyxml.h"));
+			Process process(Arguments("/usr/bin/cat ./data/lorem_ipsum.txt"));
 			process.execute(myConsumer, FileDescriptor::stdOutHandle, FileDescriptor::stdErrHandle);
 
 			std::cout << "\n\nExecuted testcase:\n";
@@ -198,7 +201,7 @@ int main(int argc, char* argv[]) {
 		else if(testcase == "4") {
 			ConsumerFile myConsumer(FileDescriptor::openFile("/tmp/result.txt", false, true, true));
 
-			Process process(Arguments("/usr/bin/cat ./data/tinyxml.h"));
+			Process process(Arguments("/usr/bin/cat ./data/lorem_ipsum.txt"));
 			process.execute(myConsumer, FileDescriptor::stdOutHandle);
 
 			std::cout << "\n\nExecuted testcase:\n";
@@ -235,7 +238,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if(testcase == "8") {
 			MyConsumer myConsumer;
-			ProducerFile myProducer(FileDescriptor::openFile("./data/tinyxml.h", true, false, false));
+			ProducerFile myProducer(FileDescriptor::openFile("./data/lorem_ipsum.txt", true, false, false));
 
 			Process process(Arguments("/usr/bin/sed -n w\\ /dev/stdout"));
 			process.execute(myProducer, FileDescriptor::stdInHandle, myConsumer, FileDescriptor::stdOutHandle);
@@ -245,7 +248,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if(testcase == "9") {
 			ConsumerFile myConsumer(FileDescriptor::openFile("/tmp/result.txt", false, true, true));
-			ProducerFile myProducer(FileDescriptor::openFile("./data/tinyxml.h", true, false, false));
+			ProducerFile myProducer(FileDescriptor::openFile("./data/lorem_ipsum.txt", true, false, false));
 
 			Process process(Arguments("/usr/bin/sed -n w\\ /dev/stdout"));
 			process.execute(myConsumer, FileDescriptor::stdOutHandle, myProducer, FileDescriptor::stdInHandle);

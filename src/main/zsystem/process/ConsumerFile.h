@@ -32,7 +32,7 @@ class ConsumerFile : public Consumer {
 public:
 	ConsumerFile(FileDescriptor fileDescriptor);
 
-	std::size_t read(FileDescriptor& fileDescriptor) override;
+	bool consume(FileDescriptor& fileDescriptor) override;
 
 	FileDescriptor& getFileDescriptor() &;
 	FileDescriptor&& getFileDescriptor() &&;

@@ -37,7 +37,7 @@ public:
 	ProducerDynamic(std::function<std::size_t(char*, std::size_t)> getDataFunction);
 	ProducerDynamic(std::string content);
 
-	std::size_t write(FileDescriptor& fileDescriptor) override;
+	std::size_t produce(FileDescriptor& fileDescriptor) override;
 
 private:
 	std::function<std::size_t(char*, std::size_t)> getDataFunction;

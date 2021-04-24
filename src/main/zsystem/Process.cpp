@@ -25,6 +25,7 @@ SOFTWARE.
 #include <zsystem/process/ProducerFile.h>
 #include <zsystem/process/FeatureProcess.h>
 #include <zsystem/SharedMemory.h>
+#include <zsystem/Logger.h>
 
 #include <unistd.h>
 #include <dirent.h>
@@ -40,7 +41,14 @@ SOFTWARE.
 #include <map>
 #include <set>
 
+#include <thread>
+#include <chrono>
+
 namespace zsystem {
+
+namespace {
+Logger logger;
+}
 
 const Process::Handle Process::noHandle = -1;
 
@@ -100,23 +108,47 @@ int Process::execute(process::Feature& feature) {
 int Process::execute(const ParameterStreams& parameterStreams, ParameterFeatures& parameterFeatures) {
 	ChildFileDescriptors childFileDescriptors;
 	ParentFileDescriptors parentFileDescriptors;
+
 	for(auto& parameterStream : parameterStreams) {
+		switch(parameterStream.first) {
+		case 0:
+			logger << "parameterStream 0 (stdin).\n";
+			break;
+		case 1:
+			logger << "parameterStream 1 (stdout).\n";
+			break;
+		case 2:
+			logger << "parameterStream 2 (stderr).\n";
+			break;
+		default:
+			logger << "parameterStream " << parameterStream.first << ".\n";
+			break;
+		}
+
 		if(parameterStream.first == process::FileDescriptor::noHandle) {
+			logger << "- no handle -> close !\n";
 			continue;
 		}
 
 		if(parameterStream.second.producer && parameterStream.second.consumer) {
 			std::pair<process::FileDescriptor, process::FileDescriptor> tmp = process::FileDescriptor::openBidirectional();
+
+			logger << "- producer & consumer: child-fd=" << tmp.second.getHandle() << " , parent-fd=" << tmp.first.getHandle() << "\n";
+
 			childFileDescriptors[parameterStream.first] = std::move(tmp.second);
 			parentFileDescriptors.emplace_back(std::move(tmp.first), parameterStream.second.producer, parameterStream.second.consumer);
 		}
 		else if(parameterStream.second.producer && parameterStream.second.consumer == nullptr) {
 			process::ProducerFile* producerFile = dynamic_cast<process::ProducerFile*>(parameterStream.second.producer);
 			if(producerFile && producerFile->getFileDescriptor()) {
+				logger << "- producer FILE: child-fd=" << producerFile->getFileDescriptor().getHandle() << "\n";
 				childFileDescriptors[parameterStream.first] = std::move(producerFile->getFileDescriptor());
 			}
 			else {
 				std::pair<process::FileDescriptor, process::FileDescriptor> tmp = process::FileDescriptor::openUnidirectional();
+
+				logger << "- producer: child-fd=" << tmp.first.getHandle() << " , parent-fd=" << tmp.second.getHandle() << "\n";
+
 				childFileDescriptors[parameterStream.first] = std::move(tmp.first);
 				parentFileDescriptors.emplace_back(std::move(tmp.second), parameterStream.second.producer, parameterStream.second.consumer);
 			}
@@ -124,15 +156,20 @@ int Process::execute(const ParameterStreams& parameterStreams, ParameterFeatures
 		else if(parameterStream.second.producer == nullptr && parameterStream.second.consumer) {
 			process::ConsumerFile* consumerFile = dynamic_cast<process::ConsumerFile*>(parameterStream.second.consumer);
 			if(consumerFile && consumerFile->getFileDescriptor()) {
+				logger << "- consumer FILE: child-fd=" << consumerFile->getFileDescriptor().getHandle() << "\n";
 				childFileDescriptors[parameterStream.first] = std::move(consumerFile->getFileDescriptor());
 			}
 			else {
 				std::pair<process::FileDescriptor, process::FileDescriptor> tmp = process::FileDescriptor::openUnidirectional();
+
+				logger << "- consumer: child-fd=" << tmp.second.getHandle() << " , parent-fd=" << tmp.first.getHandle() << "\n";
+
 				childFileDescriptors[parameterStream.first] = std::move(tmp.second);
 				parentFileDescriptors.emplace_back(std::move(tmp.first), parameterStream.second.producer, parameterStream.second.consumer);
 			}
 		}
 		else {
+			logger << "- don't close\n";
 			childFileDescriptors[parameterStream.first];
 		}
 	}
@@ -150,8 +187,13 @@ int Process::execute(const ParameterStreams& parameterStreams, ParameterFeatures
 	}
 
 	pid = childRun(std::move(childFileDescriptors), parameterFeatures, (timeData ? timeData.get()->getData() : nullptr));
+	logger << "PID = " << pid << "\n";
+
 	int rc = parentRun(pid, std::move(parentFileDescriptors), parameterFeatures);
+	logger << "rc = " << rc << "\n";
+
 	pid = noHandle;
+
 	return rc;
 }
 
@@ -180,6 +222,7 @@ Process::Handle Process::childRun(ChildFileDescriptors fileDescriptors, Paramete
 		/* ******************* *
 		 * set FileDescriptos  *
 		 * ******************* */
+
 		for(const auto& fileDescriptor : fileDescriptors) {
 			if(fileDescriptor.first == process::FileDescriptor::noHandle) {
 				continue;
@@ -324,6 +367,8 @@ Process::Handle Process::childRun(ChildFileDescriptors fileDescriptors, Paramete
 
 
 int Process::parentRun(Handle pid, ParentFileDescriptors fileDescriptors, ParameterFeatures& parameterFeatures) {
+	logger << "parentRun:\n";
+	logger << "----------\n\n";
 	int rc = EXIT_FAILURE;
 
 	for(auto& parameterFeature : parameterFeatures) {
@@ -385,11 +430,17 @@ int Process::parentRun(Handle pid, ParentFileDescriptors fileDescriptors, Parame
 }
 
 Process::PollResults Process::parentPoll(ParentFileDescriptors& fileDescriptors) {
+	PollResults pollResults;
+
 	PollResults polledFileHandles;
 	std::vector<struct pollfd> pollFileHandles;
 
+	logger << "parentPoll:\n";
+	logger << "-----------\n\n";
+
 	for(auto& fileDescriptor : fileDescriptors) {
 		if(!std::get<0>(fileDescriptor)) {
+			logger << "- fd = 'no-handle' (closed handle)\n";
 			continue;
 		}
 
@@ -397,88 +448,123 @@ Process::PollResults Process::parentPoll(ParentFileDescriptors& fileDescriptors)
 		tmpPollFd.fd = std::get<0>(fileDescriptor).getHandle();
 		tmpPollFd.events = 0;
 		if(std::get<1>(fileDescriptor)) {
+			logger << "- producer available for fd = " << std::get<0>(fileDescriptor).getHandle() << " -> check for POLLOUT\n";
 			tmpPollFd.events |= POLLOUT;
 		}
 		if(std::get<2>(fileDescriptor)) {
+			logger << "- consumer available for fd = " << std::get<0>(fileDescriptor).getHandle() << " -> check for POLLIN\n";
 			tmpPollFd.events |= POLLIN;
 		}
 		if(tmpPollFd.events != 0) {
 			pollFileHandles.push_back(tmpPollFd);
 			polledFileHandles.push_back(std::make_tuple(std::ref(std::get<0>(fileDescriptor)), std::get<1>(fileDescriptor), std::get<2>(fileDescriptor)));
 		}
+		else {
+			logger << "- no producer & no consumer for fd = " << std::get<0>(fileDescriptor).getHandle() << " -> no check\n";
+		}
 	}
 
 	if(pollFileHandles.empty() == false) {
+		logger << "Poll (blocking call) ...\n";
 		while(poll(&pollFileHandles[0], pollFileHandles.size(), -1) == -1 && errno == EINTR) { }
+		logger << "Poll returned\n";
+
 		for(std::size_t i = 0; i < pollFileHandles.size(); ++i) {
+			process::Producer* producer = std::get<1>(polledFileHandles[i]);
+			process::Consumer* consumer = std::get<2>(polledFileHandles[i]);
+
 			if((pollFileHandles[i].revents & POLLOUT) == 0) {
-				std::get<1>(polledFileHandles[i]) = nullptr;
+				producer = nullptr;
 			}
+			else {
+				logger << "  - writing possible to fd=" << std::get<0>(polledFileHandles[i]).get().getHandle() << "\n";
+			}
+
 			if((pollFileHandles[i].revents & POLLIN) == 0) {
-				std::get<2>(polledFileHandles[i]) = nullptr;
+				consumer = nullptr;
+			}
+			else {
+				logger << "  - reading possible from fd=" << std::get<0>(polledFileHandles[i]).get().getHandle() << "\n";
+			}
+
+			if(producer || consumer) {
+				pollResults.push_back(std::make_tuple(std::get<0>(polledFileHandles[i]), producer, consumer));
 			}
 		}
 	}
 
-	return polledFileHandles;
+	return pollResults;
 }
 
 bool Process::parentProcess(PollResults pollResults) {
+	logger << "parentProcess:\n";
+	logger << "--------------\n\n";
+
 	bool processed = false;
 	for(auto& pollResult: pollResults) {
 		process::FileDescriptor& fileDescriptor = std::get<0>(pollResult).get();
-		bool allNpos = std::get<1>(pollResult) || std::get<2>(pollResult);
+		if(!fileDescriptor) {
+			continue;
+		}
+
+		process::Producer* producer = std::get<1>(pollResult);
+		process::Consumer* consumer = std::get<2>(pollResult);
+
+		bool allNpos = true;
+
+		logger << "Process fd " << fileDescriptor.getHandle() << ".\n";
 
 		/* check if it is possible to send something to the process */
-		if(fileDescriptor && std::get<1>(pollResult)) {
-
+		if(producer) {
 			/* send content to the process */
-			std::size_t count = std::get<1>(pollResult)->write(fileDescriptor);
+			logger << "- produce...\n";
+			std::size_t count = producer->produce(fileDescriptor);
 
-			if(count != 0) {
-				/* check if there is NO MORE content to send to the CGI script */
-				if(count == process::FileDescriptor::npos) {
-					/* close write file descriptor */
-					std::get<1>(pollResult) = nullptr;
-				}
-				else {
-					allNpos = false;
-				}
-
-				processed = true;
-			}
-			else {
+			if(count != process::FileDescriptor::npos) {
+				logger << "  - " << count << " bytes produced\n";
 				allNpos = false;
+				processed = (count > 0);
+			}
+			/* check if there is NO MORE content to send to the CGI script */
+			else {
+				logger << "  - produce: no more data available\n";
+				processed = true;
+				/* close write file descriptor */
+				std::get<1>(pollResult) = nullptr; // producer = nullptr;
 			}
 		}
 
 
 		/* check if it is possible to receive something from the process */
-		if(fileDescriptor && std::get<2>(pollResult)) {
-
+		if(consumer) {
 			/* reveive content from the process */
-			std::size_t count = std::get<2>(pollResult)->read(fileDescriptor);
+			logger << "- consume...\n";
+			bool success = consumer->consume(fileDescriptor);
 
-			if(count != 0) {
-				/* check if no more data to read desired. drop responseHandler */
-				if(count == process::FileDescriptor::npos) {
-					/* close write file descriptor */
-					std::get<2>(pollResult) = nullptr;
-				}
-				else {
-					allNpos = false;
-				}
-
+			if(success) {
+				logger << "- consume: successful\n";
+				allNpos = false;
 				processed = true;
 			}
+			/* check if no more data to read desired. drop responseHandler */
 			else {
-				allNpos = false;
+				logger << "- consume: no more data desired\n";
+				/* close write file descriptor */
+				std::get<2>(pollResult) = nullptr; // consumer = nullptr;
 			}
 		}
 
 		if(allNpos) {
+			logger << "- close fd " << fileDescriptor.getHandle() << "\n";
 			fileDescriptor.close();
 		}
+	}
+
+	if(processed) {
+		logger << "- something processed\n";
+	}
+	else {
+		logger << "- nothing processed\n";
 	}
 
 	return processed;

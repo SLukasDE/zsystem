@@ -30,7 +30,7 @@ ProducerStatic::ProducerStatic(const char* aData, std::size_t aSize)
   size(aSize)
 { }
 
-std::size_t ProducerStatic::write(process::FileDescriptor& fileDescriptor) {
+std::size_t ProducerStatic::produce(process::FileDescriptor& fileDescriptor) {
 	std::size_t count = fileDescriptor.write(getData(), getSize() - currentPos);
 
 	if(count != 0) {

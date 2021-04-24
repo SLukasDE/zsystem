@@ -36,7 +36,7 @@ ProducerDynamic::ProducerDynamic(std::string aContent)
   currentSize(data.size() == 0 ? FileDescriptor::npos : data.size())
 { }
 
-std::size_t ProducerDynamic::write(process::FileDescriptor& fileDescriptor) {
+std::size_t ProducerDynamic::produce(process::FileDescriptor& fileDescriptor) {
 	if(currentPos >= currentSize) {
 		if(getDataFunction) {
 			currentPos = 0;

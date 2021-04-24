@@ -40,7 +40,7 @@ public:
 	 *         Number of characters written to fileDescriptor
 	 *           if there are data available to write to fileDescripor
 	 *           (produced now or queued from previous call). */
-	virtual std::size_t write(FileDescriptor& fileDescriptor) = 0;
+	virtual std::size_t produce(FileDescriptor& fileDescriptor) = 0;
 };
 
 } /* namespace process */

@@ -35,7 +35,7 @@ class ProducerStatic : public Producer {
 public:
 	ProducerStatic(const char* data, std::size_t size);
 
-	std::size_t write(process::FileDescriptor& fileDescriptor) override;
+	std::size_t produce(process::FileDescriptor& fileDescriptor) override;
 
 	const char* getData() const noexcept;
 	std::size_t getSize() const noexcept;

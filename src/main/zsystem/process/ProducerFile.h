@@ -41,7 +41,7 @@ public:
 	 *         Number of characters written to fileDescriptor
 	 *           if there are data available to write to fileDescripor
 	 *           (produced now or queued from previous call). */
-	std::size_t write(FileDescriptor& fileDescriptor) override;
+	std::size_t produce(FileDescriptor& fileDescriptor) override;
 
 	std::size_t getFileSize() const;
 

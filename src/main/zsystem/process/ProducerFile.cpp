@@ -29,7 +29,7 @@ ProducerFile::ProducerFile(FileDescriptor aFileDescriptor)
 : fileDescriptor(std::move(aFileDescriptor))
 { }
 
-std::size_t ProducerFile::write(FileDescriptor& fileDescriptor) {
+std::size_t ProducerFile::produce(FileDescriptor& fileDescriptor) {
 	if(currentPos >= currentSize) {
 		currentPos = 0;
 		currentSize = getFileDescriptor().read(buffer, sizeof(buffer));
