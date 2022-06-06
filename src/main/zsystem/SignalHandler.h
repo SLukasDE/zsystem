@@ -44,20 +44,32 @@ namespace zsystem {
 
 class SignalHandler {
 public:
+	class Handle {
+	public:
+		Handle() = default;
+		Handle(SignalHandler& signalHandler);
+		Handle(const Handle&) = delete;
+		Handle(Handle&&);
+		~Handle();
 
-    SignalHandler(Signal::Type signalType);
-    virtual ~SignalHandler();
+		Handle& operator=(const Handle&) = delete;
+		Handle& operator=(Handle&&);
 
-    static void install(Signal::Type signalType, std::function<void()> handler);
-    static void remove(Signal::Type signalType, std::function<void()> handler);
+	private:
+		SignalHandler* signalHandler = nullptr;
+	};
+	friend class Handle;
 
-    static void handle(Signal::Type signalType);
-
-protected:
-    virtual void invoke() = 0;
+    static Handle install(Signal::Type signalType, std::function<void()> handler);
 
 private:
+    std::function<void()> handler;
     Signal::Type type;
+
+    SignalHandler(Signal::Type signalType, std::function<void()> handler);
+
+    static void remove(SignalHandler& signalHandler);
+    static void saHandler(int signalNumber);
 };
 
 } /* namespace zsystem */

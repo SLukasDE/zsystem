@@ -25,7 +25,6 @@ SOFTWARE.
 #include <list>
 #include <map>
 #include <algorithm>
-#include <functional>
 #include <exception>
 
 #include <string.h>
@@ -36,30 +35,13 @@ namespace zsystem {
 
 namespace {
 
-class LambdaSignalHandler : public SignalHandler {
-public:
-    LambdaSignalHandler(Signal::Type signalType, std::function<void()> handler)
-    : SignalHandler(signalType),
-      handler(handler)
-    {
-    }
-
-    std::function<void()> handler;
-
-protected:
-    void invoke() override {
-    	handler();
-    }
-};
-
 struct InstalledSignalHandlers {
 	InstalledSignalHandlers(int signalNumber)
 	: signalNumber(signalNumber)
 	{ }
 
 	const int signalNumber;
-	bool failure = false;
-	std::list<std::reference_wrapper<SignalHandler>> handlers;
+	std::list<std::unique_ptr<SignalHandler>> handlers;
 	struct sigaction sigActionInstalled;
 	struct sigaction sigActionOriginal;
 };
@@ -81,42 +63,116 @@ InstalledSignalHandlers installedSignalHandlersTerminate(SIGTERM);             /
 InstalledSignalHandlers installedSignalHandlersStackFault(SIGSTKFLT);          // 16
 InstalledSignalHandlers installedSignalHandlersChild(SIGCHLD);                 // 17
 
-std::map<Signal::Type, InstalledSignalHandlers> installedSignalHandlersByType = {
-		{Signal::Type::hangUp,                 installedSignalHandlersHangUp},
-		{Signal::Type::interrupt,              installedSignalHandlersInterrupt},
-		{Signal::Type::quit,                   installedSignalHandlersQuit},
-		{Signal::Type::ill,                    installedSignalHandlersIll},
-		{Signal::Type::trap,                   installedSignalHandlersTrap},
-		{Signal::Type::abort,                  installedSignalHandlersAbort},
-		{Signal::Type::busError,               installedSignalHandlersBusError},
-		{Signal::Type::floatingPointException, installedSignalHandlersFloatingPointException},
-		{Signal::Type::user1,                  installedSignalHandlersUser1},
-		{Signal::Type::segmentationViolation,  installedSignalHandlersSegmentationViolation},
-		{Signal::Type::user2,                  installedSignalHandlersUser2},
-		{Signal::Type::pipe,                   installedSignalHandlersPipe},
-		{Signal::Type::alarm,                  installedSignalHandlersAlarm},
-		{Signal::Type::stackFault,             installedSignalHandlersStackFault},
-		{Signal::Type::terminate,              installedSignalHandlersTerminate},
-		{Signal::Type::child,                  installedSignalHandlersIll}
+std::map<Signal::Type, InstalledSignalHandlers*> installedSignalHandlersByType = {
+		{Signal::Type::hangUp,                 &installedSignalHandlersHangUp},
+		{Signal::Type::interrupt,              &installedSignalHandlersInterrupt},
+		{Signal::Type::quit,                   &installedSignalHandlersQuit},
+		{Signal::Type::ill,                    &installedSignalHandlersIll},
+		{Signal::Type::trap,                   &installedSignalHandlersTrap},
+		{Signal::Type::abort,                  &installedSignalHandlersAbort},
+		{Signal::Type::busError,               &installedSignalHandlersBusError},
+		{Signal::Type::floatingPointException, &installedSignalHandlersFloatingPointException},
+		{Signal::Type::user1,                  &installedSignalHandlersUser1},
+		{Signal::Type::segmentationViolation,  &installedSignalHandlersSegmentationViolation},
+		{Signal::Type::user2,                  &installedSignalHandlersUser2},
+		{Signal::Type::pipe,                   &installedSignalHandlersPipe},
+		{Signal::Type::alarm,                  &installedSignalHandlersAlarm},
+		{Signal::Type::stackFault,             &installedSignalHandlersStackFault},
+		{Signal::Type::terminate,              &installedSignalHandlersTerminate},
+		{Signal::Type::child,                  &installedSignalHandlersIll}
 };
 
 InstalledSignalHandlers* signalTypeToInstalledSignalHandlers(Signal::Type signalType) {
 	auto iter = installedSignalHandlersByType.find(signalType);
-	return (iter == std::end(installedSignalHandlersByType)) ? nullptr : &iter->second;
+	return (iter == std::end(installedSignalHandlersByType)) ? nullptr : iter->second;
 }
 
-InstalledSignalHandlers* signalNumberToInstalledSignalHandlers(int signalNumber) {
-	auto iter = std::find_if(std::begin(installedSignalHandlersByType), std::end(installedSignalHandlersByType),
-			[signalNumber](const std::pair<Signal::Type, InstalledSignalHandlers>& e) {
-		return e.second.signalNumber == signalNumber;
-	});
-	return (iter == std::end(installedSignalHandlersByType)) ? nullptr : &iter->second;
+} /* namespace {anonymous} */
+
+SignalHandler::Handle::Handle(SignalHandler& aSignalHandler)
+: signalHandler(&aSignalHandler)
+{ }
+
+SignalHandler::Handle::Handle(SignalHandler::Handle&& handle)
+: signalHandler(handle.signalHandler)
+{
+	handle.signalHandler = nullptr;
 }
 
-void signalHandler(int signalNumber) {
+SignalHandler::Handle::~Handle() {
+	if(signalHandler) {
+		SignalHandler::remove(*signalHandler);
+	}
+}
+
+SignalHandler::Handle& SignalHandler::Handle::operator=(SignalHandler::Handle&& handle) {
+	signalHandler = handle.signalHandler;
+	handle.signalHandler = nullptr;
+
+	return *this;
+}
+
+SignalHandler::SignalHandler(Signal::Type signalType, std::function<void()> aHandler)
+: handler(aHandler),
+  type(signalType)
+{ }
+
+SignalHandler::Handle SignalHandler::install(Signal::Type signalType, std::function<void()> handler) {
+	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
+
+	if(installedSignalHandlers == nullptr) {
+        throw std::runtime_error("Cannot install signal handler for unknown signal type");
+    }
+
+    if(installedSignalHandlers->handlers.empty()) {
+    	installedSignalHandlers->sigActionInstalled.sa_handler = saHandler;
+        sigemptyset(&installedSignalHandlers->sigActionInstalled.sa_mask);
+
+#ifdef SA_INTERRUPT
+        installedSignalHandlers->sigActionInstalled.sa_flags = SA_INTERRUPT;
+#else
+        installedSignalHandlers->sigActionInstalled.sa_flags = SA_RESTART;
+#endif
+        bool failure = (sigaction(installedSignalHandlers->signalNumber, &installedSignalHandlers->sigActionInstalled, &installedSignalHandlers->sigActionOriginal) != 0);
+        if(failure) {
+            throw std::runtime_error("Installation of signal handler failed for signal number " + std::to_string(installedSignalHandlers->signalNumber));
+        }
+    }
+
+    std::unique_ptr<SignalHandler> signalHandler(new SignalHandler(signalType, handler));
+    SignalHandler::Handle handle(*signalHandler);
+
+    installedSignalHandlers->handlers.push_back(std::move(signalHandler));
+
+    return handle;
+}
+
+void SignalHandler::remove(SignalHandler& signalHandler) {
+//void SignalHandler::remove(Signal::Type signalType, std::function<void()> handler) {
+//	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
+	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalHandler.type);
+
+    if(installedSignalHandlers) {
+    	std::list<std::unique_ptr<SignalHandler>>::iterator iterHandlers = installedSignalHandlers->handlers.begin();
+    	while(iterHandlers != installedSignalHandlers->handlers.end()) {
+    		if(iterHandlers->get() != &signalHandler) {
+        		++iterHandlers;
+        		continue;
+    		}
+
+			iterHandlers = installedSignalHandlers->handlers.erase(iterHandlers);
+
+	        if(installedSignalHandlers->handlers.empty()) {
+	            sigaction(installedSignalHandlers->signalNumber, &installedSignalHandlers->sigActionOriginal, nullptr);
+	        }
+    	}
+    }
+}
+
+void SignalHandler::saHandler(int signalNumber) {
 	auto iter = std::find_if(std::begin(installedSignalHandlersByType), std::end(installedSignalHandlersByType),
-			[signalNumber](const std::pair<Signal::Type, InstalledSignalHandlers>& e) {
-		return e.second.signalNumber == signalNumber;
+			[signalNumber](const std::pair<Signal::Type, InstalledSignalHandlers*>& e) {
+		return e.second->signalNumber == signalNumber;
 	});
 
 	if(iter == std::end(installedSignalHandlersByType)) {
@@ -125,86 +181,14 @@ void signalHandler(int signalNumber) {
         return;
 	}
 
-    SignalHandler::handle(iter->first);
-}
+    InstalledSignalHandlers& installedSignalHandlers = *iter->second;
 
-} /* namespace {anonymous} */
-
-SignalHandler::SignalHandler(Signal::Type signalType)
-: type(signalType)
-{
-	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
-
-	if(installedSignalHandlers == nullptr) {
-        throw std::runtime_error("Cannot install signal handler for unknown signal type");
-        return;
-    }
-
-	if(installedSignalHandlers->failure) {
-        throw std::runtime_error("Cannot install signal handler for signal " + std::to_string(installedSignalHandlers->signalNumber) + " because of previous failure.");
-        return;
-    }
-
-    if(installedSignalHandlers->handlers.empty()) {
-    	installedSignalHandlers->sigActionInstalled.sa_handler = signalHandler;
-        sigemptyset(&installedSignalHandlers->sigActionInstalled.sa_mask);
-
-#ifdef SA_INTERRUPT
-        installedSignalHandlers->sigActionInstalled.sa_flags = SA_INTERRUPT;
-#else
-        installedSignalHandlers->sigActionInstalled.sa_flags = SA_RESTART;
-#endif
-        installedSignalHandlers->failure = (sigaction(installedSignalHandlers->signalNumber, &installedSignalHandlers->sigActionInstalled, &installedSignalHandlers->sigActionOriginal) != 0);
-        if(installedSignalHandlers->failure) {
-            throw std::runtime_error("Installation of signal handler failed for signal number " + std::to_string(installedSignalHandlers->signalNumber));
-        }
-    }
-
-    installedSignalHandlers->handlers.push_back(std::ref(*this));
-}
-
-SignalHandler::~SignalHandler() {
-    InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(type);
-
-    if(installedSignalHandlers) {
-    	installedSignalHandlers->handlers.remove_if([this](const std::reference_wrapper<SignalHandler>& handler){return &handler.get() == this;});
-
-        if(installedSignalHandlers->handlers.empty()) {
-            sigaction(installedSignalHandlers->signalNumber, &installedSignalHandlers->sigActionOriginal, nullptr);
-        }
-    }
-}
-
-void SignalHandler::install(Signal::Type signalType, std::function<void()> handler) {
-	new LambdaSignalHandler(signalType, handler);
-}
-
-void SignalHandler::remove(Signal::Type signalType, std::function<void()> handler) {
-	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
-	for(auto signalHandlerObj : installedSignalHandlers->handlers) {
-		LambdaSignalHandler* ptr = dynamic_cast<LambdaSignalHandler*>(&signalHandlerObj.get());
-		if(ptr && ptr->handler.target<void()>() == handler.target<void()>()) {
-			delete ptr;
-			return;
-		}
-	}
-}
-
-void SignalHandler::handle(Signal::Type signalType) {
-    InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
-
-    if(installedSignalHandlers == nullptr) {
-    	// ERROR! unknown signal number. Who installed this handler?
-        // esl::logger.error << "Signal type " << signalType << " is not supported by this framework. Who installed this handler?" << std::endl;
-        return;
-    }
-
-    if(installedSignalHandlers->handlers.empty()) {
+    if(installedSignalHandlers.handlers.empty()) {
     	// WARNING! Empty handler list should result in installing the original handler again?!
     }
 
-    for(auto signalHandler : installedSignalHandlers->handlers) {
-        signalHandler.get().invoke();
+    for(const auto& signalHandler : installedSignalHandlers.handlers) {
+        signalHandler->handler();
     }
 }
 
