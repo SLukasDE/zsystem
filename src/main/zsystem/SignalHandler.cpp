@@ -22,10 +22,10 @@ SOFTWARE.
 
 #include <zsystem/SignalHandler.h>
 
-#include <list>
-#include <map>
 #include <algorithm>
 #include <exception>
+#include <list>
+#include <map>
 
 #include <string.h>
 #include <errno.h>
@@ -148,8 +148,6 @@ SignalHandler::Handle SignalHandler::install(Signal::Type signalType, std::funct
 }
 
 void SignalHandler::remove(SignalHandler& signalHandler) {
-//void SignalHandler::remove(Signal::Type signalType, std::function<void()> handler) {
-//	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalType);
 	InstalledSignalHandlers* installedSignalHandlers = signalTypeToInstalledSignalHandlers(signalHandler.type);
 
     if(installedSignalHandlers) {
