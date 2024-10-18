@@ -23,13 +23,13 @@ SOFTWARE.
 #include <zsystem/SignalHandler.h>
 
 #include <algorithm>
-#include <exception>
 #include <list>
 #include <map>
+#include <stdexcept>
 
-#include <string.h>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
 
 namespace zsystem {
 

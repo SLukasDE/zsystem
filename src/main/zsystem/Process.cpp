@@ -304,7 +304,7 @@ Process::Handle Process::childRun(ChildFileDescriptors fileDescriptors, Paramete
 				execvp(argv[0], argv);
 			}
 
-			write(STDERR_FILENO, "Unable to execute \"", std::strlen("Unable to change to execute \""));
+			write(STDERR_FILENO, "Unable to execute \"", std::strlen("Unable to execute \""));
 			write(STDERR_FILENO, argv[0], std::strlen(argv[0]));
 			write(STDERR_FILENO, "\"\n", std::strlen("\"\n"));
 			_exit(EXIT_FAILURE);
